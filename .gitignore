@@ -62,3 +62,14 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# -- solution package (PLAN.md section 9) --------------------------------------------------------
+# Anything frame-level derived from the match is the match data for licensing purposes: the parsed
+# ATD cache, features, hand-labelled validation windows and every generated submission stay local.
+cache/
+labels_private/
+submissions/
+.pytest_cache/
+# Detector weights trained on the match video are derived from it: do not commit them until the
+# organisers have confirmed that is allowed (RULES.md, "Do not publish derived data").
+models/*.pt

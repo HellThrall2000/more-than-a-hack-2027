@@ -1,0 +1,16 @@
+# Only for possession/video (the optional video ball detector). Everything else needs just
+# requirements-solution.txt.
+#
+# opencv: the headless build is enough -- nothing opens a window.
+# torch: install it separately -- it is not pinned here on purpose.
+#
+#   AMD Radeon (e.g. RX 9060 XT): AMD's own ROCm PyTorch wheels, which AMD's guide says to use in
+#   preference to the PyTorch.org ROCm builds, with Python 3.12. Follow AMD's "Install PyTorch for
+#   ROCm" page for your OS and check AMD's compatibility matrix for your card first:
+#     https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html
+#   NVIDIA:   pip install torch --index-url https://download.pytorch.org/whl/cu126   (or newer)
+#   CPU only: pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# Tested here with opencv-python-headless 5.0.0 and torch 2.14.1 (CPU), Python 3.14.
+-r requirements-solution.txt
+opencv-python-headless

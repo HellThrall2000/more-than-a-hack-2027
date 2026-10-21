@@ -1,0 +1,9 @@
+# Pinned versions the solution package (possession/) was developed and tested with.
+#
+# Tested on Python 3.14.4 -- the only interpreter available when this was written. PLAN.md asked for
+# 3.11; nothing in the code needs 3.14, but it has NOT been run on 3.11, so run `make test` there
+# before relying on it. Only numpy and pandas are needed to produce a submission; pytest is for the
+# tests. There is deliberately no LightGBM / torch: version 2 (learned emission) is not built.
+numpy==2.5.4
+pandas==3.0.6
+pytest==9.1.1
