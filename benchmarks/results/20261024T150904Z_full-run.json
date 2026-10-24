@@ -1,0 +1,122 @@
+{
+  "run": "possession.full_run",
+  "name": "TotalFootball",
+  "when_utc": "2026-10-24T15:09:04+00:00",
+  "video": "tactical",
+  "seconds": 1010.9,
+  "failed_step": null,
+  "log_file": "logs\\20261024T145213Z_full_run.log",
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11",
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "cwd": "D:\\repo\\more-than-a-hack-2027",
+    "git": "4ce68bc (uncommitted changes)",
+    "config": "dc98443d3f",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6",
+    "cv2": "5.0.0",
+    "torch": "2.14.0+rocm10.1.0",
+    "torch_hip": "7.16.26385",
+    "gpu": "AMD Radeon RX 9060 XT (gfx1200, 15.9 GB)",
+    "ram_gb": 15.6
+  },
+  "steps": [
+    {
+      "step": "check",
+      "title": "check the data bundle and the environment",
+      "info": {
+        "video_frames": 199319,
+        "train_device": "cuda"
+      },
+      "status": "ok",
+      "seconds": 1.7
+    },
+    {
+      "step": "audit",
+      "title": "audit: alignment and data statistics",
+      "info": {},
+      "status": "ok",
+      "seconds": 6.4
+    },
+    {
+      "step": "baselines",
+      "title": "rebuild the organiser baselines (byte-identical check)",
+      "info": {
+        "identical": true
+      },
+      "status": "ok",
+      "seconds": 2.2
+    },
+    {
+      "step": "predict_tracking",
+      "title": "tracking-only prediction over the whole match",
+      "info": {
+        "spell_f1_mean": 0.3111111111111111,
+        "macro_f1": 0.5984938521552149,
+        "n_pred_spells": 19,
+        "n_gt_spells": 17
+      },
+      "status": "ok",
+      "seconds": 12.2
+    },
+    {
+      "step": "train",
+      "title": "train the ball detector on the tactical video",
+      "info": {
+        "model": "models\\ball_detector.pt"
+      },
+      "status": "ok",
+      "seconds": 819.8
+    },
+    {
+      "step": "gate",
+      "title": "go / no-go gate for the video detections",
+      "info": {
+        "passed": false,
+        "overall": {
+          "coverage": 0.00021235931195582927,
+          "precision": 1.0,
+          "filler_median_m": 13.296812292877012,
+          "filler_plus_video_median_m": 13.296812292877012
+        },
+        "gate": {
+          "precision_required": 0.9,
+          "met": true,
+          "worthwhile": false
+        }
+      },
+      "status": "ok",
+      "seconds": 145.8
+    },
+    {
+      "step": "detect",
+      "title": "search the tactical video on every missing-ball frame",
+      "status": "skipped: the gate has not passed for the current detector",
+      "seconds": 0.0
+    },
+    {
+      "step": "predict_video",
+      "title": "prediction with the video detections",
+      "status": "skipped: the gate has not passed for the current detector",
+      "seconds": 0.0
+    },
+    {
+      "step": "final",
+      "title": "choose and validate the submission file",
+      "info": {
+        "final": "submissions\\TotalFootball.csv",
+        "from": "TotalFootball_tracking.csv"
+      },
+      "status": "ok",
+      "seconds": 0.9
+    },
+    {
+      "step": "reports",
+      "title": "semantics study and diagnosis (aggregates, see the log)",
+      "info": {},
+      "status": "ok",
+      "seconds": 22.0
+    }
+  ]
+}

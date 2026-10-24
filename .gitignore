@@ -73,3 +73,15 @@ submissions/
 # Detector weights trained on the match video are derived from it: do not commit them until the
 # organisers have confirmed that is allowed (RULES.md, "Do not publish derived data").
 models/*.pt
+
+# -- benchmarks (benchmarks/README.md) -----------------------------------------------------------
+# benchmarks/results/ holds the aggregate timing JSON written by possession/video/bench.py, which may
+# be committed. Anything else that lands there -- a CSV, an array, an image, a clip -- could be
+# frame-level data derived from the match, so it stays out.
+benchmarks/results/*
+!benchmarks/results/*.json
+!benchmarks/results/.gitkeep
+
+# -- run logs (possession/log.py) ------------------------------------------------------------------
+# Aggregates only by design, but they are machine-specific debugging output: keep them local.
+logs/

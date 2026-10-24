@@ -21,6 +21,9 @@ OUT_OF_POSSESSION = frozenset([
     "DEFENSIVE TRANSITION"])
 SET_PIECE, GOAL = "SET PIECES", "GOALS"
 
+TAG_MIN_REF = 10            # reference frames an interval needs to be scored
+TAG_MIN_INTERVALS = 5       # scored intervals a code needs to get any weight
+
 HOME_NAMES = ("barcelona", "barça", "barca")
 AWAY_NAMES = ("atletic", "athletic")
 
@@ -49,6 +52,31 @@ def possessing_team(tag):
     return None
 
 
+def kickoff_teams(tags):
+    """{half: 0 home / 1 away} for the start-of-half kick-offs, from 'Kick Off (Start)' set pieces.
+
+    Law 8: the team that did not kick off the first half kicks off the second, so one known half
+    gives the other. Halves whose tags disagree with each other or with that rule are left out.
+    """
+    seen = {}
+    for tag in tags:
+        if (tag.get("code") or "").strip().upper() != SET_PIECE:
+            continue
+        if "kick off (start)" not in str(tag["tags"].get("Type", "")).lower():
+            continue
+        team = team_index(tag["tags"].get("Team"))
+        half = str(tag["tags"].get("Half", "")).strip()[:1]
+        if team is not None and half in ("1", "2"):
+            seen.setdefault(int(half), set()).add(team)
+    known = {h: next(iter(t)) for h, t in seen.items() if len(t) == 1}
+    if len(known) == 2 and known[1] == known[2]:
+        return {}               # contradicts Law 8: trust neither
+    for h in (1, 2):
+        if h in known and 3 - h not in known:
+            known[3 - h] = 1 - known[h]
+    return known
+
+
 def _ramp(n, start, stop, ramp):
     """Trapezoid over [start, stop): fades in and out over `ramp` frames, 1 in the middle."""
     start, stop = max(0, start), min(n, stop)
@@ -69,24 +97,43 @@ def silver_team(dist, reliable, cfg: Config):
     return np.where(ok, team, -1).astype(np.int8)
 
 
-def calibrate(tags, silver, cfg: Config):
-    """{code: weight} and {code: (agree, disagree)} from silver frames, no ground truth involved."""
-    counts = {}
+def calibrate(tags, reference, cfg: Config):
+    """{code: weight} and {code: (agree, disagree)} against a reference team per frame (-1 = none).
+    No ground truth involved.
+
+    cfg.tag_calib = "interval" (default): `reference` is the control-episode team. Each tag
+    interval with at least TAG_MIN_REF reference frames scores the share of them that agree, and a
+    code's accuracy is the mean over its intervals (+1/+2 smoothing), so a long interval counts
+    once and not once per frame. Codes with fewer than TAG_MIN_INTERVALS usable intervals get no
+    weight. counts holds (agreeing, disagreeing) intervals.
+
+    cfg.tag_calib = "silver": the earlier per-frame accuracy on silver frames (silver_team).
+    """
+    per_code = {}
     for tag in tags:
         team = possessing_team(tag)
         if team is None:
             continue
         code = tag["code"].strip().upper()
-        seg = silver[max(0, tag["start_frame"]):tag["end_frame"]]
+        seg = reference[max(0, tag["start_frame"]):tag["end_frame"]]
         seg = seg[seg >= 0]
-        a, d = counts.get(code, (0, 0))
-        counts[code] = (a + int((seg == team).sum()), d + int((seg != team).sum()))
-    weights = {}
-    for code, (agree, disagree) in counts.items():
-        if agree + disagree < 20:
-            weights[code] = 0.0
-            continue
-        acc = (agree + 1.0) / (agree + disagree + 2.0)
+        per_code.setdefault(code, []).append((int((seg == team).sum()), int((seg != team).sum())))
+    weights, counts = {}, {}
+    for code, rows in per_code.items():
+        if cfg.tag_calib == "silver":
+            agree, disagree = sum(r[0] for r in rows), sum(r[1] for r in rows)
+            counts[code] = (agree, disagree)
+            if agree + disagree < 20:
+                weights[code] = 0.0
+                continue
+            acc = (agree + 1.0) / (agree + disagree + 2.0)
+        else:
+            shares = [a / float(a + d) for a, d in rows if a + d >= TAG_MIN_REF]
+            counts[code] = (sum(s > 0.5 for s in shares), sum(s <= 0.5 for s in shares))
+            if len(shares) < TAG_MIN_INTERVALS:
+                weights[code] = 0.0
+                continue
+            acc = (sum(shares) + 1.0) / (len(shares) + 2.0)
         weights[code] = float(np.clip(np.log(acc / (1.0 - acc)), 0.0, cfg.tag_weight_cap))
     return weights, counts
 
@@ -108,5 +155,13 @@ def build(tags, n, weights, cfg: Config):
         else:
             team = possessing_team(tag)
             if team is not None:
-                poss[a:b, team] += weights.get(code, 0.0) * r
+                # Overlapping phase codes (BALL IN FINAL THIRD + BALL IN THE BOX + PLAYERS IN THE
+                # BOX ...) describe one situation, not independent evidence: by default a team's
+                # tag evidence is its strongest tag, not the sum, so stacked codes cannot outvote
+                # the tracking.
+                w = weights.get(code, 0.0) * r
+                if cfg.tag_pool == "sum":
+                    poss[a:b, team] += w
+                else:
+                    poss[a:b, team] = np.maximum(poss[a:b, team], w)
     return {"poss": poss, "setpiece": setpiece, "goal": goal}

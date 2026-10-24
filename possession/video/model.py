@@ -96,7 +96,17 @@ def decode(out):
     return conf.cpu().numpy(), ((cx.float() + ox) * STRIDE).cpu().numpy(), ((cy.float() + oy) * STRIDE).cpu().numpy()
 
 
-def pick_device(name="auto"):
+def pick_device(name="auto", miopen=False):
+    """The torch device for `name`; an AMD card under ROCm reports as cuda.
+
+    On ROCm, MIOpen (cuDNN's counterpart) is switched off unless miopen=True. On the Windows ROCm
+    build for the RX 9060 XT (gfx1200) its batch-norm kernel fails to compile at run time
+    ('type_traits' file not found), and with no tuned kernel database its convolutions are slower
+    than PyTorch's own kernels anyway -- see benchmarks/README.md.
+    """
     if name == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")      # ROCm builds report cuda
-    return torch.device(name)
+        name = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(name)
+    if device.type == "cuda" and torch.version.hip and not miopen:
+        torch.backends.cudnn.enabled = False
+    return device

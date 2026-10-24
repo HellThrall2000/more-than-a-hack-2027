@@ -41,6 +41,7 @@ class Config:
     control_rel_speed: float = 2.0          # m/s between ball and nearest player
     control_min_frames: int = 4
     control_hole: int = 2
+    control_lookback: int = 40              # frames before a control onset searched for its touch
     touch_dv: float = 3.0                   # m/s velocity change within the touch window
     touch_turn_deg: float = 30.0
     touch_turn_speed: float = 3.0           # m/s; a turn only counts at speed
@@ -62,6 +63,9 @@ class Config:
     oob_margin: float = 0.5                 # m past a line
     oob_persist: int = 10                   # frames (airborne balls project long)
     oob_persist_unobserved: int = 20
+    oob_extrap_near: float = 4.0            # m from a line where a lost ball may have gone out
+    oob_extrap_speed: float = 4.0           # m/s outward, at the last reliable sighting
+    oob_extrap_min_gap: int = 25            # frames the ball must stay lost (1 s) to call it out
     stationary_radius: float = 0.6          # m; positions over the window stay inside this
     stationary_frames: int = 12             # 0.5 s
 
@@ -73,7 +77,12 @@ class Config:
     emit_kappa_ctrl: float = 2.0            # logit weight of a control episode
     emit_kappa_dead: float = 6.0            # logit weight of stoppage evidence
     emit_dead_bias: float = 1.5             # dead logit with no evidence is -bias
+    emit_calm_weight: float = 0.6           # stoppage evidence from "play has stopped" (calm.py)
+    calm_smooth: int = 25                   # frames (+/-) of smoothing of the collective speed
+    calm_min_frames: int = 50               # calm must last 2 s before it counts
     emit_tag_weight: float = 1.0            # scales the calibrated Smart Tagging prior
+    tag_pool: str = "max"                   # "max": overlapping codes are one situation; "sum": independent
+    tag_calib: str = "interval"             # "interval": per tag interval vs control episodes; "silver": per frame
     tag_ramp: int = 50                      # frames over which a tag interval fades in and out
     tag_silver_dist: float = 0.5            # silver frames: nearest player within this
     tag_silver_opp: float = 3.0             # ... and no opponent within this
@@ -105,8 +114,10 @@ class Config:
     dec_dur_sigma_dead: float = 0.8
     dec_max_segment: int = 6000             # 4 minutes
     dec_min_node_gap: int = 5
+    dec_kickoff_team_bonus: float = 6.0     # Law 8: the halves are kicked off by different teams
     turnover_offset: int = 0                # calibrated on hand-labelled windows, not here
     stop_offset: int = 0
+    restart_offset: int = 0
 
     # -- L6 output -----------------------------------------------------------------------------
     mbr_samples: int = 200
@@ -120,6 +131,32 @@ class Config:
 
     def replace(self, **changes) -> "Config":
         return dataclasses.replace(self, **changes)
+
+    def with_overrides(self, items) -> "Config":
+        """Apply ["key=value", ...] from the command line (--set), typed like the field.
+
+        Every override changes digest(), so the registry and the cache tell experiments apart.
+        """
+        fields = {f.name: f for f in dataclasses.fields(self)}
+        changes = {}
+        for item in items or ():
+            key, sep, text = item.partition("=")
+            key = key.strip()
+            if not sep or key not in fields:
+                raise ValueError("--set {!r}: expected key=value with key one of the Config fields".format(item))
+            current = getattr(self, key)
+            if isinstance(current, bool):
+                value = text.strip().lower() in ("1", "true", "yes", "on")
+            elif isinstance(current, int):
+                value = int(text)
+            elif isinstance(current, float):
+                value = float(text)
+            elif isinstance(current, tuple):
+                value = tuple(float(v) for v in text.split(",") if v.strip())
+            else:
+                value = text.strip()
+            changes[key] = value
+        return self.replace(**changes) if changes else self
 
 
 DEFAULT = Config()

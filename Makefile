@@ -6,16 +6,18 @@
 #   make audit           FIRST thing to run on the real bundle -- aggregate statistics only
 #   make check-baselines rebuild the four committed baselines from the data; must be byte-identical
 #   make diagnose        where the pipeline loses points vs the public window (aggregate counts only)
+#   make semantics       SITUATION.md Q1-Q4: where true boundaries sit vs our detectors (keep local)
+#   make full-run        the whole match end to end, with progress, logs/ and a summary (NAME=<team>)
 #   make submission      predict + validate  ->  submissions/$(NAME).csv
 #   make score           score the submission on the public 5 minutes (a CORRECTNESS check only)
 #   make repro-check     build twice and compare -- the rules require the same file every time
 #
 # NAME is the team name: SUBMISSION.md wants <team_name>.csv.
-PY   ?= .venv/bin/python
+PY   ?= $(if $(wildcard .venv/Scripts/python.exe),.venv/Scripts/python.exe,.venv/bin/python)
 NAME ?= submission
 OUT  ?= submissions/$(NAME).csv
 
-.PHONY: test test-fast demo audit diagnose check-baselines predict validate score submission repro-check
+.PHONY: test test-fast demo audit diagnose semantics full-run check-baselines predict validate score submission repro-check
 
 test:
 	$(PY) -m pytest -q tests
@@ -31,6 +33,12 @@ audit:
 
 diagnose:
 	$(PY) -m possession.diagnose --gt public
+
+semantics:
+	$(PY) -m possession.semantics --gt public
+
+full-run:
+	$(PY) -m possession.full_run --name $(NAME)
 
 check-baselines:
 	mkdir -p cache/baselines

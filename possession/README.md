@@ -1,7 +1,44 @@
 # possession/ — the solution package for PLAN.md
 
 Run `make test` (no data needed), then `make demo`. On the real bundle: `make audit`,
-`make check-baselines`, `make submission NAME=<team>`, `make score`.
+`make check-baselines`, `make semantics`, `make submission NAME=<team>`, `make score`.
+
+What counts as dead ball and what counts as possession: [SITUATION.md](../SITUATION.md).
+
+## Running the whole match
+
+```
+.venv\Scripts\python -m possession.full_run --name <team>
+```
+
+It runs every step in order:
+1. `check`: the bundle and the GPU.
+2. `audit`: alignment checks.
+3. `baselines`: the organiser baselines, byte-identical.
+4. `predict_tracking`: tracking-only prediction.
+5. `train`: the ball detector, on the GPU.
+6. `gate`: does the detector recover hidden balls?
+7. `detect`: search the video on every missing-ball frame, on the CPU.
+8. `predict_video`: prediction with the video detections.
+9. `final`: copy the chosen file to `submissions/<team>.csv`.
+10. `reports`: semantics study and diagnosis.
+
+Steps 5-8 (the video detector) run only with `--with-video`. Without it, the submission is the
+deterministic tracking-only file, and `final` prints its SHA-256 so a rerun can confirm it is the
+same file. Use `--only`, `--skip` or `--from <step>` to run part of it; an interrupted run resumes with
+`--from`. If any video step fails, the run carries on, and `final` uses the tracking-only file.
+
+Where to look:
+
+| | |
+|---|---|
+| console | one line per step (`==>` start, `<==` end, with time and memory) and progress lines with rate and ETA |
+| `logs/<UTC>_<command>.log` | the console plus DEBUG detail, the environment (versions, git commit, config hash), warnings, full tracebacks and native crash stacks. Gitignored |
+| `benchmarks/results/<UTC>_full-run.json` | each step's status and time, and the aggregate scores |
+
+Every command sets up the same logging: `run`, `audit`, `semantics`, `diagnose`, `harness`,
+`video.train`, `video.detect`, `video.bench`. Add `--verbose` to `full_run` to see DEBUG lines on
+the console too.
 
 ## Built (version 1, rule-based) and what covers it
 
@@ -17,6 +54,10 @@ Run `make test` (no data needed), then `make demo`. On the real bundle: `make au
 | L5 semi-Markov decoder (Viterbi + posterior sampling) | `decode.py` | `test_decode` |
 | L6 MBR on spellF1, output policy | `mbr.py`, `policy.py` | `test_mbr` (equals the official scorer) |
 | V1–V3 harness, experiment registry | `harness.py` | `test_pipeline` (reproduces README's baseline numbers) |
+| Week-1 semantics study (SITUATION.md Q1–Q4): true boundaries vs detector events | `semantics.py` | `test_semantics` |
+| On-screen match clock ↔ video frame (review aid; labels stay on video frames) | `clock.py` | `test_clock` |
+| Ball-free stoppage evidence, line-crossing extrapolation, restart sides, kick-off team, tag pooling, `--set` | `calm.py`, `ball/events.py`, `candidates.py`, `tags.py`, `config.py` | `test_fixes` |
+| V3 labelling tool: change points → ground-truth CSV | `labels.py` | `test_fixes` |
 | ATD noise simulator, synthetic match | `simulate_atd.py`, `synthetic.py` | everywhere |
 
 ## Optional: video ball detector (`video/`)

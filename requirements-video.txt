@@ -4,10 +4,14 @@
 # opencv: the headless build is enough -- nothing opens a window.
 # torch: install it separately -- it is not pinned here on purpose.
 #
-#   AMD Radeon (e.g. RX 9060 XT): AMD's own ROCm PyTorch wheels, which AMD's guide says to use in
-#   preference to the PyTorch.org ROCm builds, with Python 3.12. Follow AMD's "Install PyTorch for
-#   ROCm" page for your OS and check AMD's compatibility matrix for your card first:
-#     https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html
+#   AMD Radeon RX 9060 XT (gfx1200), Windows 11 -- verified 2026-10-24 with Python 3.13:
+#     uv venv --seed --python 3.13 .venv
+#     .venv\Scripts\python -m pip install --index-url https://stable.repo.amd.com/rocm/whl-next/ ^
+#       "torch[device-gfx1200]==2.14.0+rocm10.1.0" "torchvision[device-gfx1200]==0.29.0a0+rocm10.1.0"
+#     .venv\Scripts\python -m pip install -r requirements-video.txt
+#   Other AMD cards: AMD's "Install PyTorch for ROCm" page and its compatibility matrix:
+#     https://rocm.docs.amd.com/projects/ai-ecosystem/en/latest/frameworks/pytorch/install.html
+#   MIOpen is switched off on ROCm (video/model.py: pick_device); benchmarks/README.md says why.
 #   NVIDIA:   pip install torch --index-url https://download.pytorch.org/whl/cu126   (or newer)
 #   CPU only: pip install torch --index-url https://download.pytorch.org/whl/cpu
 #

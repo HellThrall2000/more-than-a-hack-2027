@@ -1,0 +1,98 @@
+{
+  "run": "possession.full_run",
+  "name": "TotalFootball_v3",
+  "when_utc": "2026-10-24T17:53:37+00:00",
+  "video": "tactical",
+  "seconds": 43.6,
+  "failed_step": null,
+  "log_file": "logs\\20261024T175253Z_full_run.log",
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11",
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "cwd": "D:\\repo\\more-than-a-hack-2027",
+    "git": "4ce68bc (uncommitted changes)",
+    "config": "dfa7fe65aa",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6",
+    "cv2": "5.0.0",
+    "ram_gb": 15.6
+  },
+  "steps": [
+    {
+      "step": "check",
+      "title": "check the data bundle and the environment",
+      "info": {
+        "video_frames": 199319
+      },
+      "status": "ok",
+      "seconds": 0.0
+    },
+    {
+      "step": "audit",
+      "title": "audit: alignment and data statistics",
+      "info": {},
+      "status": "ok",
+      "seconds": 0.9
+    },
+    {
+      "step": "baselines",
+      "title": "rebuild the organiser baselines (byte-identical check)",
+      "info": {
+        "identical": true
+      },
+      "status": "ok",
+      "seconds": 2.2
+    },
+    {
+      "step": "predict_tracking",
+      "title": "tracking-only prediction over the whole match",
+      "info": {
+        "spell_f1_mean": 0.49696969696969706,
+        "macro_f1": 0.7769525251925362,
+        "n_pred_spells": 16,
+        "n_gt_spells": 17
+      },
+      "status": "ok",
+      "seconds": 13.9
+    },
+    {
+      "step": "train",
+      "status": "not selected",
+      "seconds": 0.0
+    },
+    {
+      "step": "gate",
+      "status": "not selected",
+      "seconds": 0.0
+    },
+    {
+      "step": "detect",
+      "status": "not selected",
+      "seconds": 0.0
+    },
+    {
+      "step": "predict_video",
+      "status": "not selected",
+      "seconds": 0.0
+    },
+    {
+      "step": "final",
+      "title": "choose and validate the submission file",
+      "info": {
+        "final": "submissions\\TotalFootball_v3.csv",
+        "from": "TotalFootball_v3_tracking.csv",
+        "sha256": "5f5789837bf57e59595e22d7464ccd0028c16a3342513e4bbf8c7e54e2029306"
+      },
+      "status": "ok",
+      "seconds": 0.7
+    },
+    {
+      "step": "reports",
+      "title": "semantics study and diagnosis (aggregates, see the log)",
+      "info": {},
+      "status": "ok",
+      "seconds": 25.9
+    }
+  ]
+}

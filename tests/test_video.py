@@ -7,6 +7,7 @@ say how it does on the real broadcast video.
 """
 
 import dataclasses
+import os
 
 import numpy as np
 import pytest
@@ -202,3 +203,43 @@ def test_go_no_go_gate_hides_visible_balls_and_measures_recovery(scene, trained)
     assert o["coverage"] > 0.3 and o["precision"] >= 0.8
     assert o["filler_plus_video_median_m"] < o["filler_median_m"]       # the video actually helps the fill
     assert result["gate"]["met"] and result["gate"]["worthwhile"]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="no ROCm / CUDA device")
+def test_training_on_the_gpu_clears_the_gate_and_cpu_inference_agrees(trained):
+    """The intended split: train on the GPU (an AMD card under ROCm reports as cuda), infer on the
+    CPU, where the submission has to reproduce exactly."""
+    from possession.video.model import pick_device
+    from possession.video.train import predict_crops
+    gpu = pick_device("cuda")
+    model, report = fit(trained["cs"], trained["vcfg"], gpu, log=lambda *_: None)
+    assert report["meets_gate"], report["at_thr"]
+    X = trained["cs"].X[:256]
+    gpu_conf, _, _ = predict_crops(model, X, gpu)
+    cpu_conf, _, _ = predict_crops(model.to("cpu"), X, torch.device("cpu"))
+    assert np.abs(gpu_conf - cpu_conf).max() < 1e-3
+
+
+def test_bench_reads_the_tactical_video_and_writes_aggregate_timings_only(scene, tmp_path):
+    import json
+    import shutil
+    import warnings
+    from games import asset_paths
+    from possession.video import bench
+    data = tmp_path / "data"
+    target = asset_paths(data_dir=str(data), source="tactical")["video"]
+    os.makedirs(os.path.dirname(target))
+    shutil.copy(scene["path"], target)
+    out = tmp_path / "results"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")                     # the clip is not 199,319 frames long
+        assert bench.main(["--data-dir", str(data), "--devices", "cpu", "--start", "10", "--frames", "20",
+                           "--repeat", "2", "--out-dir", str(out)]) == 0
+    files = list(out.glob("*.json"))
+    assert len(files) == 1
+    result = json.loads(files[0].read_text())
+    assert result["video"] == "tactical" and result["decode"]["fps"] > 0
+    row = result["runs"][0]
+    assert row["device"] == "cpu" and row["error"] is None and row["train_step_ms"] > 0
+    assert set(row["infer_batch_ms"]) == {"96", "160", "320"}
+    assert set(result) == {"benchmark", "when_utc", "video", "environment", "decode", "runs"}

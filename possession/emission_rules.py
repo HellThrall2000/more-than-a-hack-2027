@@ -12,6 +12,7 @@ import numpy as np
 
 from .config import Config
 from .features import FeatureSet
+from .util import keep_long_runs
 
 H, A, D = 0, 1, 2
 
@@ -21,10 +22,20 @@ def _logsumexp(x, axis=-1):
     return (m + np.log(np.exp(x - m).sum(axis=axis, keepdims=True))).squeeze(axis)
 
 
+def calm_evidence(fs: FeatureSet, cfg: Config):
+    """(N,) in [0, 1]: the players say play has stopped (calm.py), for at least calm_min_frames,
+    while nobody controls the ball and it is not travelling fast. Needs no ball at all."""
+    calm = np.nan_to_num(fs.col("calm"))
+    sustained = keep_long_runs(calm > 0.5, cfg.calm_min_frames)
+    nobody = (fs.col("ctrl_h") == 0) & (fs.col("ctrl_a") == 0)
+    not_fast = np.nan_to_num(fs.col("ball_speed"), nan=0.0) < 8.0
+    return np.where(sustained & nobody & not_fast, calm, 0.0)
+
+
 def stoppage_evidence(fs: FeatureSet, tagf, cfg: Config):
     """(N,) in [0, 1.5]: how strongly the frame says "play is stopped"."""
     still_walk = (fs.col("stationary") > 0) & (np.nan_to_num(fs.col("walk_frac")) > 0.6)
-    ev = (fs.col("oob") + 1.0 * still_walk
+    ev = (fs.col("oob") + 1.0 * still_walk + cfg.emit_calm_weight * calm_evidence(fs, cfg)
           + 0.5 * tagf["setpiece"] * (fs.col("stationary") > 0) + 0.5 * tagf["goal"])
     return np.clip(ev, 0.0, 1.5), still_walk
 

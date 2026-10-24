@@ -14,11 +14,14 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
+from . import log as plog
 from .config import Config
 
 IOUS = (0.3, 0.4, 0.5, 0.6, 0.7)
 D = 2
 Segment = Tuple[int, int, int]
+
+log = plog.get(__name__)
 
 
 def spells_of(blocks: Sequence[Sequence[Segment]]):
@@ -123,6 +126,8 @@ def choose(results, cfg: Config):
         pred = spells_of(variant)
         score = float(np.mean([spell_f1(d, pred) for d in draws]))
         report[theta] = score
+        log.info("  MBR theta %.2f: %d possessions, expected spellF1 against %d posterior samples %.4f",
+                 theta, len(pred[0]), n_samples, score)
         if score > best_score + 1e-12:
             best_theta, best_score, best_variant = theta, score, variant
     return best_variant, {"theta": best_theta, "expected": best_score, "by_theta": report}

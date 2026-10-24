@@ -5,6 +5,81 @@ FC Barcelona (`H`) vs Athletic Club (`A`) · design written 2026-10-21 · deadli
 Team choices: possession-first, with ball-state reconstruction as the backbone · CPU only ·
 validation on open datasets plus a few hand-labelled windows of this match.
 
+## Status — updated 2026-10-24
+
+The first real submission exists and validates, `submissions/TotalFootball.csv`: tracking-only,
+deterministic, no GPU. On the public 5 minutes it scores **spellF1 0.311** (bootstrap 5–95%:
+0.16–0.48) and **macroF1 0.598**, with 19 possessions predicted against 17 true. The baselines on
+the same window are 0.424 (`smooth125`) and 0.326 (`smooth50`). That is a correctness check, not
+a ranking (Section 7).
+
+What the public-window report shows:
+
+| symptom | number | reading |
+|---|---|---|
+| dead ball missed | `D` recall 0.23, precision 0.66 | stoppages are mostly absorbed by a team, so possessions merge |
+| boundaries not found | 3 of 20 true boundaries matched within ±1 s | the main timing problem. The "−13 frames" mean latency rests on those 3 alone and is not evidence of a constant offset |
+| team bias toward Athletic | home share 0.47 predicted vs 0.57 true; `H` recall 0.59, `A` recall 0.84 | source not yet located: per-frame evidence, Smart Tagging, or the decoder |
+
+### Done and not done
+
+| area | item | status |
+|---|---|---|
+| environment | Python 3.13 venv; ROCm PyTorch on the RX 9060 XT (MIOpen off, `benchmarks/README.md`) | done |
+| rules | [SITUATION.md](SITUATION.md): dead ball vs in play, restart sides, simplifications S1–S10, open questions Q1–Q4 | done |
+| L0 | ATD parser, team mapping, cache, audit, alignment checks | done; ran on the bundle |
+| L1–L3 | player cleaning, ball layer (clean, smooth, gaps, touches, control, out of play, at rest), features, restart formations, candidates | done (version 1); every threshold an untuned first guess |
+| L4 | rules emission + Smart Tagging prior calibrated on silver frames | done (version 1) |
+| L5–L6 | semi-Markov decoder, posterior samples, MBR on spellF1, output policy | done |
+| tooling | harness + registry, `diagnose`, `semantics` (Q1–Q4), `clock`, `full_run` with console progress, `logs/` and `benchmarks/results/` | done |
+| submission | `full_run --name TotalFootball` → validated CSV + SHA-256; video detector opt-in | done |
+| video detector | crops, training on the GPU, gate, ROI search | built and trained once; gate not run; **off** until the weights can be committed |
+| measurement | semantics study (Q1–Q4) and `diagnose` on the real match | **not run yet** |
+| V3 | labelling tool `possession/labels.py` (change points → ground-truth CSV) | done |
+| V3 | the labelled windows themselves; GitHub issue to the organisers about validation-only labels and committing weights | **not started** |
+| dead ball | ball-free stoppage evidence (`calm.py`: two-state mixture on collective speed, no labels); extrapolated line crossing | done, 2026-10-24. Synthetic with the ball hidden in stoppages: `D` recall 0.39 → 0.98. **Not yet measured on the real match** |
+| restarts | restart side by stoppage kind (ball out → opponent of the last toucher; whistle → team in control); kick-off team from tags + Law 8 | done, 2026-10-24 |
+| restarts | S4 set-up guard; goal → the team that conceded kicks off | **not started** |
+| team bias | Smart Tagging codes pooled by max, not summed; `diagnose` splits each source's team calls by the true team | done; **source not located yet** (needs a `diagnose` run) |
+| tooling | `--set key=value` config overrides on `run`, `diagnose`, `semantics`, `full_run` | done |
+| v2 on the real match | `full_run --name TotalFootball_v2` (2026-10-24): public spellF1 0.424, macroF1 0.739, 17 possessions; `D` recall 0.58; bias gone (wrong-team calls 20% / 13%). With tags off: 0.488 / 0.810. Full match: 267 possessions, 46.6% `D` | measured |
+| measured conventions | Q3: true turnovers land about 13 frames before our first touch of the new team and about 24 before its control onset (8–9 of 12 found). Smart Tagging is about 70% right in both directions. Kick-off tags carry no team. Video detector: gate failed (coverage 0.02%) | measured |
+| round 3 | turnovers anchored on the new team's first touch (SITUATION.md §5); tag weights calibrated per interval against control episodes (`tag_calib`); kick-off team from who stands on the centre spot + Law 8; calm onset / end in `semantics` | done, 2026-10-24; **not yet run on the real match** |
+| V2 | DFL / Metrica loaders, simulator acceptance, LightGBM emission (version 2) | **not started** |
+| freeze | `make repro-check` on two machines, TECHNICAL.md | **not started** |
+
+### Next plan of action
+
+Ordered. Nothing here is chosen by its public-window score.
+
+1. **Make the fixes that follow from the rules, not from tuning.** Items 1–4 and 6 are done
+   (2026-10-24, 72 tests pass); item 5's offsets exist and stay 0 until step 4:
+   1. **Dead ball without a ball:** an unsupervised "play has stopped" signal from the players
+      alone (a two-state mixture on collective speed, fitted to this match without labels). It
+      counts as `D` evidence only when nobody controls the ball.
+   2. **Extrapolated line crossing:** a ball last seen near a line, moving out, then lost, is out
+      of play from the projected crossing (SITUATION.md S2, S9).
+   3. **Restart sides by stoppage kind:** ball out → opponent of the last toucher; whistle inside
+      the field → the team in control before it; kick-off team alternates by half (Law 8).
+   4. **Smart Tagging:** overlapping phase codes describe one situation, so a team's tag evidence
+      is the strongest of its tags, not their sum.
+   5. **Per-type timing offsets** (turnover, stoppage, restart) as config values, set only from
+      measurements (step 2).
+   6. **Experiment switches:** `--set key=value` on every command, so an ablation (tags off,
+      calm off) is one flag and is recorded in the config hash.
+2. **Measure on the real match** (a person runs these locally; aggregates only): `semantics`,
+   then `diagnose` with and without tags (`--set emit_tag_weight=0`). This answers Q1–Q4 and
+   locates the team bias.
+3. **Build V3:** a labelling tool that turns a list of change points into a ground-truth CSV.
+   1. Each labeller first labels the public window blind and is scored against it.
+   2. Then label 3–4 windows of 5 minutes outside it, into `labels_private/` (gitignored).
+   3. File the GitHub issue (validation-only labels, committing weights) before relying on them.
+4. **Decide on V3:** keep a change only if it beats the current version on V3 by more than the
+   bootstrap band and does not break V1. Set the timing offsets from V3.
+5. **Version 2 (M3):** DFL loader, simulator acceptance, LightGBM emission, validated on V2 and
+   V3.
+6. **Freeze by Nov 14:** repro-check, TECHNICAL.md, validate the exact upload file.
+
 ## 0. Summary
 
 - **What wins.** spellF1 scores whole possessions, and smoothing-window baselines lose because they

@@ -17,7 +17,10 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from . import ROOT  # noqa: F401  (puts the repository root on sys.path)
+from . import log as plog
 from .config import Config
+
+log = plog.get(__name__)
 
 FIELD_SEP = ":"
 GROUP_SEP = ";"
@@ -41,6 +44,7 @@ class MatchInputs:
     homography: Optional[np.ndarray] = None     # (N, 3, 3) normalised pitch -> pixels
     homography_valid: Optional[np.ndarray] = None
     kickoffs: Optional[dict] = None             # {half: first alive frame} when known
+    kickoff_team: Optional[dict] = None         # {half: 0 home / 1 away} kicking off, when known
     video_ball: Optional[tuple] = None          # (xy (N, 2), conf (N,), thr) from possession.video
     n_frames: int = 0
 
@@ -66,14 +70,18 @@ def parse_atd(raw_path, n_frames, pitch, max_ball_fields=4) -> Tracking:
     speed = np.full((n_frames, n_slots), np.nan, dtype=np.float32)
     ball = np.full((n_frames, max_ball_fields), np.nan, dtype=np.float32)
 
-    with open(raw_path) as handle:
+    skipped = 0
+    with open(raw_path) as handle, plog.Progress(n_frames, "parsing ATD", "frames") as progress:
         for line in handle:
             parts = line.rstrip("\r\n").split(FIELD_SEP)
             if len(parts) != 3:
+                skipped += 1
                 continue
             frame = int(parts[0]) - 1
             if not 0 <= frame < n_frames:
+                skipped += 1
                 continue
+            progress.set(frame + 1)
             for slot, group in enumerate(parts[1].split(GROUP_SEP)):
                 if slot >= n_slots or not group or group[0] == "N":
                     continue
@@ -87,6 +95,8 @@ def parse_atd(raw_path, n_frames, pitch, max_ball_fields=4) -> Tracking:
                 values = group.split(",")[:max_ball_fields]
                 ball[frame, :len(values)] = [float(v) for v in values]
 
+    if skipped:
+        log.warning("ATD: %d lines skipped (malformed, or frame outside 1..%d)", skipped, n_frames)
     xy[..., 0] *= length
     xy[..., 1] *= width
     ball[:, 0] *= length
@@ -116,7 +126,9 @@ def load_match(cfg: Config, data_dir=None, game="BAR-ATH", use_cache=True, cache
     if use_cache and os.path.isfile(cache_file):
         z = np.load(cache_file)
         tracking = Tracking(z["players_xy"], z["players_speed"], z["ball_xy"], z["ball_extra"])
+        log.info("ATD loaded from cache %s", plog.rel(cache_file))
     else:
+        log.info("ATD: parsing %s (first run only; cached afterwards)", os.path.basename(raw_path))
         tracking = parse_atd(raw_path, n_frames, pitch)
         if use_cache:
             os.makedirs(cache_dir, exist_ok=True)
@@ -136,6 +148,20 @@ def load_match(cfg: Config, data_dir=None, game="BAR-ATH", use_cache=True, cache
         from starter.load_homography import load as load_h
         homography, _, valid = load_h(game, data_dir)
 
-    return MatchInputs(tracking, slot_team, graded_blocks(game), tags, homography, valid,
-                       kickoffs={1: graded_blocks(game)[0][1], 2: cfg.second_half_kickoff},
-                       n_frames=n_frames)
+    blocks = graded_blocks(game)
+    graded = np.zeros(n_frames, dtype=bool)
+    for _, a, b in blocks:
+        graded[a:b] = True
+    log.info("match: %d frames, %d graded | %d track slots (%d home, %d away) | ball seen on %.1f%% of "
+             "graded frames | %d Smart Tagging intervals | homography %s",
+             n_frames, int(graded.sum()), len(slot_team), int((slot_team == 0).sum()),
+             int((slot_team == 1).sum()), 100.0 * float((~np.isnan(tracking.ball_xy[graded, 0])).mean()),
+             len(tags), "not loaded" if valid is None else "valid on {:.1f}% of frames".format(
+                 100.0 * float(np.mean(valid))))
+    from .tags import kickoff_teams
+    kickoff_team = kickoff_teams(tags)
+    log.info("kick-off team by half (Smart Tagging + Law 8): %s",
+             {h: "HA"[t] for h, t in sorted(kickoff_team.items())} or "unknown")
+    return MatchInputs(tracking, slot_team, blocks, tags, homography, valid,
+                       kickoffs={1: blocks[0][1], 2: cfg.second_half_kickoff},
+                       kickoff_team=kickoff_team, n_frames=n_frames)
