@@ -76,9 +76,18 @@ def predict(inputs: MatchInputs, cfg: Config = DEFAULT, details=False):
              {k: round(v, 2) for k, v in sorted(weights.items())})
     log.debug("Smart Tagging (agree, disagree) %s: %s", "frames" if cfg.tag_calib == "silver" else "intervals", counts)
     tagf = tagmod.build(inputs.tags, n, weights, cfg)
-    logp = emit(fs, tagf, cfg)
+    shape, shape_report = None, {"used": False}
+    if cfg.emit_shape_weight > 0:
+        from .shape import team_logit
+        logit, shape_report = team_logit(players, slot_team, attack, blocks, ball.ctrl_team, cfg)
+        if shape_report.get("used") and shape_report["held_out_accuracy"] >= cfg.shape_min_accuracy:
+            shape = logit
+        elif shape_report.get("used"):
+            log.info("player-shape team model NOT used: held-out accuracy %.3f below %.2f",
+                     shape_report["held_out_accuracy"], cfg.shape_min_accuracy)
+    logp = emit(fs, tagf, cfg, shape)
     em = np.argmax(logp[graded], axis=1)
-    cands = build_candidates(ball, fs, aux, blocks, inputs.kickoffs, cfg)
+    cands = build_candidates(ball, fs, aux, blocks, inputs.kickoffs, cfg, inputs.whistles)
     log.info("L4 emission + cands   %6.1fs  per-frame argmax H %.1f%% A %.1f%% D %.1f%% | %d candidates "
              "(%d turnover, %d stoppage, %d restart)", time.time() - t0,
              *(100.0 * float((em == k).mean()) for k in range(3)), len(cands),
@@ -103,8 +112,27 @@ def predict(inputs: MatchInputs, cfg: Config = DEFAULT, details=False):
     if details:
         return labels, {"ball": ball, "features": fs, "aux": aux, "logp": logp, "cands": cands, "tagf": tagf,
                         "results": results, "segments": segments, "mbr": report,
-                        "tag_weights": weights, "tag_counts": counts, "players": players}
+                        "tag_weights": weights, "tag_counts": counts, "players": players,
+                        "shape": shape_report}
     return labels
+
+
+def _whistles(data_dir, cfg: Config):
+    """Whistles on the video timeline, or None (with a warning) when the audio cannot be used."""
+    from . import audio
+    from games import asset_paths
+    video = asset_paths(data_dir=data_dir)["video"]
+    try:
+        if audio.probe(video) is None:
+            log.warning("the video has no audio stream: running without whistle evidence")
+            return None
+        samples, rate = audio.read_wav(audio.extract(video, cfg))
+        found = audio.shift(audio.detect_whistles(samples, rate, cfg), cfg.whistle_delay_frames)
+    except (audio.AudioError, OSError) as exc:
+        log.warning("audio unavailable (%s): running without whistle evidence", exc)
+        return None
+    log.info("whistles from the audio track: %d (delay %d frames)", len(found), cfg.whistle_delay_frames)
+    return found
 
 
 def main(argv=None):
@@ -115,6 +143,9 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--video-ball", default=None, help="detections from possession.video.detect")
+    ap.add_argument("--audio", action="store_true",
+                    help="use the referee's whistle from the video's audio (possession.audio); "
+                         "skipped with a warning if the track cannot be read")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                     help="override a Config value, e.g. --set emit_tag_weight=0 (repeatable)")
     args = ap.parse_args(argv)
@@ -143,6 +174,8 @@ def main(argv=None):
         z = np.load(args.video_ball)
         inputs.video_ball = (z["xy"], z["conf"], float(z["thr"]))
         log.info("video detections from %s (threshold %.2f)", args.video_ball, float(z["thr"]))
+    if args.audio:
+        inputs.whistles = _whistles(args.data_dir, cfg)
     with plog.stage("predict (config {})".format(cfg.digest())):
         labels = predict(inputs, cfg)
     reason = validate(labels, inputs.n_frames)

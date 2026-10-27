@@ -46,6 +46,7 @@ class MatchInputs:
     kickoffs: Optional[dict] = None             # {half: first alive frame} when known
     kickoff_team: Optional[dict] = None         # {half: 0 home / 1 away} kicking off, when known
     video_ball: Optional[tuple] = None          # (xy (N, 2), conf (N,), thr) from possession.video
+    whistles: Optional[list] = None             # [(start_frame, stop_frame)] on the video timeline, from possession.audio
     n_frames: int = 0
 
     def __post_init__(self):

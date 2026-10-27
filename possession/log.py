@@ -65,7 +65,7 @@ def setup(command, verbose=False):
 
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.DEBUG if verbose else logging.INFO)
-    console.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%H:%M:%S"))
+    console.setFormatter(_console_formatter())
     to_file = logging.FileHandler(path, encoding="utf-8")
     to_file.setLevel(logging.DEBUG)
     to_file.setFormatter(logging.Formatter(
@@ -97,6 +97,42 @@ def setup(command, verbose=False):
         logger.debug("env %-14s %s", key, value)
     logger.debug("argv %s", " ".join(sys.argv))
     return logger
+
+
+def _console_formatter():
+    """structlog's console renderer on every record (stdlib and structlog alike): coloured level,
+    time, message and key=value context. Falls back to plain text when structlog is missing, and
+    drops the colours when stdout is not a terminal, so a redirected log stays readable."""
+    try:
+        import structlog
+    except ImportError:
+        return logging.Formatter("%(asctime)s  %(message)s", "%H:%M:%S")
+    return structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=[structlog.stdlib.add_log_level,
+                           structlog.processors.TimeStamper(fmt="%H:%M:%S", utc=False)],
+        processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                    structlog.dev.ConsoleRenderer(colors=sys.stdout.isatty(), pad_event_to=60)])
+
+
+def bind(name, **context):
+    """A structlog logger that writes through this package's handlers, with `context` on every line.
+
+        log = plog.bind(__name__, video="BAR-ATH")
+        log.info("audio extracted", seconds=12.4, sample_rate=16000)
+
+    Without structlog it is the plain stdlib logger and the context is dropped.
+    """
+    try:
+        import structlog
+    except ImportError:
+        return get(name)
+    if not structlog.is_configured():
+        structlog.configure(
+            processors=[structlog.stdlib.add_log_level, structlog.processors.TimeStamper(fmt="%H:%M:%S", utc=False),
+                        structlog.processors.format_exc_info,
+                        structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+            logger_factory=structlog.stdlib.LoggerFactory(), cache_logger_on_first_use=True)
+    return structlog.get_logger(get(name).name).bind(**context)
 
 
 def log_path():

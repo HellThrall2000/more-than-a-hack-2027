@@ -14,8 +14,9 @@ import numpy as np
 
 from .ball import BallState
 from .ball.events import ctrl_episodes
-from .ball.gaps import SRC_OBSERVED
+from .ball.gaps import SRC_INTERP, SRC_OBSERVED
 from .config import Config
+from .restarts import kickoff_restart_team, restart_taker
 from .util import keep_long_runs, runs
 
 
@@ -83,7 +84,7 @@ def rest_leaves(ball: BallState, aux, cfg: Config):
     return out
 
 
-def build_candidates(ball: BallState, fs, aux, blocks, kickoffs, cfg: Config) -> Candidates:
+def build_candidates(ball: BallState, fs, aux, blocks, kickoffs, cfg: Config, whistles=None) -> Candidates:
     col = _Collector()
 
     # -- turnovers: a different team takes control after the previous episode's team ------------
@@ -95,6 +96,8 @@ def build_candidates(ball: BallState, fs, aux, blocks, kickoffs, cfg: Config) ->
     for a, b, t, strength in _episode_stream(ball, cfg):
         if prev_team is not None and t != prev_team:
             s = strength * min(1.0, (b - a) / 12.0)
+            if _keeper_touch_only(a, b, t, aux, blocks, cfg):
+                s *= cfg.gk_parry_factor            # S13: a save is not control; a catch or hold is
             col.add(_controlling_touch(tf, tt, a, t, cfg) + cfg.turnover_offset, turn=cfg.dec_bonus_turnover * s)
         prev_team = t
     # touches by the team that is not currently in control
@@ -108,9 +111,12 @@ def build_candidates(ball: BallState, fs, aux, blocks, kickoffs, cfg: Config) ->
 
     # -- stoppages --------------------------------------------------------------------------------
     stops = stoppage_runs(ball, fs, cfg)
+    at_ball = np.where(np.isin(ball.src, (SRC_OBSERVED, SRC_INTERP))[:, None], aux["dist"], np.nan)
     for a, b in zip(*stops["oob"]):
         col.add(a + cfg.stop_offset, stop=cfg.dec_bonus_stop_oob)
-        col.add(b + cfg.restart_offset, restart=cfg.dec_bonus_restart_oob_end, pref=_restart_pref(ball, a, cfg))
+        taker = restart_taker(at_ball, b, cfg)
+        col.add(b + cfg.restart_offset, restart=cfg.dec_bonus_restart_oob_end,
+                pref=_restart_pref(ball, a, cfg) if taker is None else _team_pref(taker, cfg.dec_restart_taker))
     for a in stops["still"][0]:
         col.add(a + cfg.stop_offset, stop=cfg.dec_bonus_stop_still)
     for a in stops["whistle"][0]:
@@ -121,12 +127,28 @@ def build_candidates(ball: BallState, fs, aux, blocks, kickoffs, cfg: Config) ->
         col.add(b + cfg.restart_offset, restart=cfg.dec_bonus_restart_oob_end,
                 pref=_side_pref(ball, a, cfg))
 
+    # -- the referee's whistle: a stop only where the players also stop (a whistle also starts restarts)
+    if whistles and cfg.dec_bonus_stop_audio > 0:
+        onsets = np.sort(np.concatenate([stops[k][0] for k in ("oob", "still", "whistle", "calm")]))
+        reach = int(cfg.whistle_corroborate_s * cfg.fps)
+        for a, _ in whistles:
+            k = np.searchsorted(onsets, a, side="left")
+            if k < len(onsets) and onsets[k] - a <= reach:
+                col.add(a + cfg.stop_offset, stop=cfg.dec_bonus_stop_audio)
+
     # -- restarts: the ball leaves a long rest next to a player -------------------------------------
+    # Observed beats predicted (SITUATION.md section 6): the team seen at the ball restarts. A kick-off
+    # goes to the team that conceded (S14), never to the team in control before the stoppage.
     formation = aux["rest"].max(axis=1)
+    kickoff_like = aux["rest"][:, 0] > 0.5
     for a, b in rest_leaves(ball, aux, cfg):
+        if kickoff_like[a:b].any():
+            taker = kickoff_restart_team(at_ball, ball.xy, ball.oob, b, aux["attack"][_half_of(b, blocks)], cfg)
+        else:
+            taker = restart_taker(at_ball, b, cfg)
         col.add(b + cfg.restart_offset,
                 restart=cfg.dec_bonus_restart_leave * (0.5 + 0.5 * float(formation[a:b].max())),
-                pref=_side_pref(ball, a, cfg))
+                pref=_side_pref(ball, a, cfg) if taker is None else _team_pref(taker, cfg.dec_restart_taker))
     for half, first in (kickoffs or {}).items():
         if first is not None:
             col.add(first, restart=cfg.dec_kickoff_bonus)
@@ -141,6 +163,45 @@ def build_candidates(ball: BallState, fs, aux, blocks, kickoffs, cfg: Config) ->
                 col.add(f)
 
     return _merge(col.rows, blocks, cfg)
+
+
+def _keeper_touch_only(a, b, team, aux, blocks, cfg: Config):
+    """True if the control episode [a, b) is the team's goalkeeper for under gk_catch_frames.
+
+    The keeper is the team's deepest player and the one nearest the ball, inside the penalty area
+    (the tracking has no identities, SITUATION.md section 10.1). Law 12: a rebound or a save is not
+    control, so a short keeper episode does not start a possession for his team; a catch (the ball
+    moves with the keeper for gk_catch_frames) does.
+    """
+    if b - a >= cfg.gk_catch_frames:
+        return False
+    players, attack = aux["players"], aux["attack"]
+    mid = (a + b) // 2
+    half = next((h for h, lo, hi in blocks if lo <= mid < hi), None)
+    if half is None:
+        return False
+    own_dir = attack[half][team]                       # +1: this team attacks towards +x, defends x = 0
+    xs = players[mid, :, 0]
+    own = aux["slot_team"] == team
+    if not own.any() or np.isnan(xs[own]).all():
+        return False
+    depth = xs - 0.0 if own_dir > 0 else cfg.pitch_length - xs
+    slot = aux["slot"][mid, team]
+    if not own[slot] or np.isnan(depth[slot]):
+        return False
+    deepest = np.nanargmin(np.where(own, depth, np.inf))
+    return bool(slot == deepest and depth[slot] <= cfg.gk_box_depth)
+
+
+def _team_pref(team, bonus):
+    return (bonus, 0.0) if team == 0 else (0.0, bonus)
+
+
+def _half_of(frame, blocks):
+    for half, a, b in blocks:
+        if a <= frame < b:
+            return half
+    return blocks[0][0]
 
 
 def _restart_pref(ball: BallState, stop_frame, cfg: Config):

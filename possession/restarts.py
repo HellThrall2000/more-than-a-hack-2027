@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from .config import Config
+from .util import runs
 
 RESTART_TYPES = ("kickoff", "corner", "goal_kick", "throw_in", "free_kick", "penalty")
 KICKOFF_SPOT_M = 2.5        # a kicker stands within this of the centre spot
@@ -44,6 +45,59 @@ def resolve_kickoff_team(from_tags, from_players):
         if h in known and 3 - h not in known:
             known[3 - h] = 1 - known[h]
     return known
+
+
+def restart_taker(at_ball, frame, cfg: Config):
+    """0 home / 1 away for the team at the ball in the second before a restart at `frame`, or None.
+
+    `at_ball` is (N, 2): each team's nearest-player distance to the ball, NaN where the ball is not
+    reliably seen. Laws 13-17 keep opponents away from a set-piece ball (2 m at a throw-in, 9.15 m
+    at free kicks, corners, goal kicks and kick-offs), so a player at the ball with no opponent near
+    it is the taker. A dropped ball fits too: everyone else stands 4 m away (Law 8.2), so the player
+    it is dropped for is seen, and an observed receiver wins (SITUATION.md section 6).
+    """
+    seg = at_ball[max(0, frame - cfg.taker_window):frame]
+    seg = seg[np.isfinite(seg).all(axis=1)]
+    if len(seg) < cfg.taker_window // 2:
+        return None
+    near = np.argmin(seg, axis=1)
+    taken = (seg.min(axis=1) < cfg.taker_dist) & (seg.max(axis=1) > cfg.taker_opp_clear)
+    for team in (0, 1):
+        if (taken & (near == team)).sum() >= cfg.taker_min_share * len(seg):
+            return team
+    return None
+
+
+def conceding_team(ball_xy, oob, frame, attack, cfg: Config):
+    """0 home / 1 away for the team that conceded, if the ball last went out between the posts
+    within goal_kickoff_window frames before `frame`; else None.
+
+    `attack` is this half's (home_dir, away_dir), +1 meaning "attacks towards increasing x": the team
+    attacking towards +x defends the x = 0 goal. Only the crossing is read here; S14 requires the
+    goal to be confirmed, which the caller does by asking only at a kick-off.
+    """
+    lo = max(0, frame - cfg.goal_kickoff_window)
+    starts, _ = runs(oob[lo:frame])
+    if not len(starts):
+        return None
+    x, y = ball_xy[lo + starts[-1]]
+    if not np.isfinite(x) or abs(y - cfg.pitch_width / 2.0) > cfg.goal_mouth_half:
+        return None
+    if x < 0:
+        return 0 if attack[0] > 0 else 1
+    if x > cfg.pitch_length:
+        return 0 if attack[0] < 0 else 1
+    return None
+
+
+def kickoff_restart_team(at_ball, ball_xy, oob, frame, attack, cfg: Config):
+    """The team kicking off at `frame` (S14: the team that conceded), from the goal crossing and from
+    who stands at the ball. Either alone decides; if they disagree there is no call."""
+    taker = restart_taker(at_ball, frame, cfg)
+    conceded = conceding_team(ball_xy, oob, frame, attack, cfg)
+    if taker is None or conceded is None:
+        return conceded if taker is None else taker
+    return taker if taker == conceded else None
 
 
 def formation_scores(ball, slow, d_star, players_xy, slot_team, cfg: Config):

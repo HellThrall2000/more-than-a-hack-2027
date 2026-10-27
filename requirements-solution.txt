@@ -9,3 +9,6 @@ pandas==3.0.6
 pytest==9.1.1
 # Memory use in the logs (possession/log.py); optional -- the logs leave it out when missing.
 psutil==7.2.2
+# Console logging and retries (possession/log.py, possession/audio.py).
+structlog==26.1.0
+tenacity==9.2.1

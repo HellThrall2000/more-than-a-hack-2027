@@ -81,6 +81,8 @@ class Config:
     calm_smooth: int = 25                   # frames (+/-) of smoothing of the collective speed
     calm_min_frames: int = 50               # calm must last 2 s before it counts
     emit_tag_weight: float = 1.0            # scales the calibrated Smart Tagging prior
+    emit_shape_weight: float = 1.0          # scales the player-shape team logit (shape.py); 0 switches it off
+    shape_min_accuracy: float = 0.75        # used only if its held-out accuracy on ball-seen frames beats this
     tag_pool: str = "max"                   # "max": overlapping codes are one situation; "sum": independent
     tag_calib: str = "interval"             # "interval": per tag interval vs control episodes; "silver": per frame
     tag_ramp: int = 50                      # frames over which a tag interval fades in and out
@@ -95,6 +97,34 @@ class Config:
     cand_long_gap: int = 50
     rest_min_frames: int = 25               # ball at rest this long before a restart counts
     rest_leave_speed: float = 3.0           # m/s
+    taker_dist: float = 1.5                 # m; the restart taker stands at the ball
+    taker_opp_clear: float = 2.0            # m; no opponent nearer (Law 15: 2 m; Laws 13, 16, 17: 9.15 m)
+    taker_window: int = 25                  # frames before the restart that are read (1 s)
+    taker_min_share: float = 0.8            # share of those frames that must agree on the taker
+    goal_mouth_half: float = 4.2            # m; half the goal (3.66 m) plus tracking slack
+    goal_kickoff_window: int = 4500         # frames from a goal crossing to its kick-off (3 min, VAR)
+
+    # -- audio: the referee's whistle (SITUATION.md section 10.3) -------------------------------
+    audio_rate: int = 16000                 # Hz; one hop of 640 samples is exactly one 25 fps video frame
+    audio_win: int = 2048                   # samples per spectrum (128 ms)
+    whistle_lo_hz: float = 2000.0
+    whistle_hi_hz: float = 4500.0
+    whistle_band_ratio: float = 0.35        # share of the frame's energy that lies in the whistle band
+    whistle_peak_ratio: float = 0.5         # share of the band's energy within +/- whistle_peak_hz of its peak
+    whistle_peak_hz: float = 150.0
+    whistle_min_s: float = 0.2              # shorter is a click, not a whistle
+    whistle_max_s: float = 3.0              # longer is the crowd or a stadium tone
+    whistle_hole_s: float = 0.12            # a blip shorter than this inside a whistle does not split it
+    whistle_floor_db: float = -55.0         # quieter than this (re full scale) is silence, not a whistle
+
+    whistle_delay_frames: int = 4           # sound lags the picture (343 m/s over ~50 m); measure and replace
+    whistle_corroborate_s: float = 5.0      # a whistle counts as a stop only if a stoppage run starts this soon after
+    dec_bonus_stop_audio: float = 3.0       # below dec_bonus_stop_whistle (5): a whistle also starts restarts
+
+    # -- goalkeeper control (SITUATION.md S13) ----------------------------------------------------
+    gk_box_depth: float = 16.5              # m from the goal line: a keeper's touch is in the penalty area
+    gk_catch_frames: int = 25               # a keeper holds the ball at least this long to have caught it
+    gk_parry_factor: float = 0.3            # turnover bonus scale for a short keeper touch (parry, punch)
 
     # -- L5 decoder ----------------------------------------------------------------------------
     dec_alpha: float = 0.12                 # discount for correlated frames
@@ -107,6 +137,7 @@ class Config:
     dec_bonus_restart_leave: float = 10.0
     dec_bonus_restart_oob_end: float = 4.0
     dec_restart_side: float = 3.0           # bonus for "opponent of the last toucher" restarts
+    dec_restart_taker: float = 3.0          # restart team seen at the ball; = dec_restart_side, so it swaps a guess for an observation without making restarts easier
     dec_kickoff_bonus: float = 20.0
     dec_dur_median_alive: float = 9.0       # seconds, log-normal
     dec_dur_sigma_alive: float = 1.1

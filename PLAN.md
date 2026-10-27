@@ -26,7 +26,7 @@ What the public-window report shows:
 | area | item | status |
 |---|---|---|
 | environment | Python 3.13 venv; ROCm PyTorch on the RX 9060 XT (MIOpen off, `benchmarks/README.md`) | done |
-| rules | [SITUATION.md](SITUATION.md): dead ball vs in play, restart sides, simplifications S1–S10, open questions Q1–Q4 | done |
+| rules | [SITUATION.md](SITUATION.md): dead ball vs in play (IFAB Laws 2026/27), restart sides, simplifications S1–S14, open questions Q1–Q5 | done |
 | L0 | ATD parser, team mapping, cache, audit, alignment checks | done; ran on the bundle |
 | L1–L3 | player cleaning, ball layer (clean, smooth, gaps, touches, control, out of play, at rest), features, restart formations, candidates | done (version 1); every threshold an untuned first guess |
 | L4 | rules emission + Smart Tagging prior calibrated on silver frames | done (version 1) |

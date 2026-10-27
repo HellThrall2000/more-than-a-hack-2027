@@ -85,3 +85,73 @@ benchmarks/results/*
 # -- run logs (possession/log.py) ------------------------------------------------------------------
 # Aggregates only by design, but they are machine-specific debugging output: keep them local.
 logs/
+
+# -- STRICT LOCKDOWN (added on feat-nvidia-track) ------------------------------------------------
+# Default-deny for anything that can hold frame-level or answer-bearing data. Only the explicit
+# exceptions further down are ever committed.
+*.csv
+!evaluation/gt/*_possession_gt_public.csv
+!evaluation/results/baseline_*.csv
+*.npz
+*.npy
+*.pkl
+*.pickle
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.arrow
+*.jsonl
+*.sqlite
+*.db
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.avi
+*.mkv
+*.mov
+*.webm
+*.m4a
+*.wav
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+# model weights and local-VLM files are derived from or run on the match
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.gguf
+*.ckpt
+*.engine
+models/
+# the tracking bundle and anything named like it, wherever it lands
+*_atd.txt
+*_atd.xml
+*_homography.csv
+*_smart_tagging.xml
+BAR-ATH_*
+!evaluation/gt/BAR-ATH_possession_gt_public.csv
+!evaluation/gt/BAR-ATH_possession_gt_public_meta.json
+Football references/
+Football*references/
+submissions/
+labels_private/
+labels/
+cache/
+logs/
+output/
+outputs/
+results_private/
+scratch/
+tmp/
+*.log
+
+# -- evaluation summaries (scripts/run_all.sh) ----------------------------------------------------
+# Aggregate-only by design, but they are run output: keep them local.
+reports/
+logs/

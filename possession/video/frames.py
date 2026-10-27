@@ -17,8 +17,8 @@ from .. import log as plog
 log = plog.get(__name__)
 
 
-def gray_frames(path, needed, expected_total=None, desc="decoding video"):
-    """Yield (index, grey image) for each index in the sorted sequence `needed`.
+def gray_frames(path, needed, expected_total=None, desc="decoding video", colour=False):
+    """Yield (index, grey image) for each index in the sorted sequence `needed` (BGR with colour=True).
 
     Logs the file's properties and a progress line (frames grabbed, rate, ETA) every few seconds.
     """
@@ -50,7 +50,7 @@ def gray_frames(path, needed, expected_total=None, desc="decoding video"):
                 if not ok:
                     log.warning("could not decode frame %d; stopping", idx)
                     break
-                yield idx, (frame if frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+                yield idx, (frame if colour or frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
                 j += 1
                 while j < len(needed) and needed[j] == idx:
                     j += 1

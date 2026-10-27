@@ -136,5 +136,5 @@ def build_features(ball: BallState, players_xy, desc, slot_team, attack, blocks,
 
     names = list(cols)
     F = np.column_stack([np.asarray(cols[k], dtype=np.float32) for k in names])
-    aux = {"dist": dist, "slot": slot, "d_star": d_star, "rest": rest, "slow": slow}
+    aux = {"dist": dist, "slot": slot, "d_star": d_star, "rest": rest, "slow": slow, "attack": attack, "players": players_xy, "slot_team": slot_team}
     return FeatureSet(F, names), aux

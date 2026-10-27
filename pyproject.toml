@@ -1,0 +1,51 @@
+# uv project file. One command sets everything up:
+#
+#   uv sync                         # the submission pipeline (numpy / pandas) + tests
+#   uv sync --extra video           # + GPU ball detection (CUDA PyTorch, Ultralytics) and LightGBM
+#
+# then run anything with `uv run`, e.g. `uv run python -m possession.run`, or keep using `make`
+# (the Makefile uses .venv/bin/python, which is the environment uv manages).
+# The requirements-*.txt files are kept for pip users; this file and uv.lock are the source of truth.
+
+[project]
+name = "possession"
+version = "0.4.0"
+description = "Frame-by-frame team possession from automatic tracking (More Than A Hack 2027)"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "numpy==2.5.4",
+    "pandas==3.0.6",
+    "psutil==7.2.2",
+    "structlog==26.1.0",
+    "tenacity==9.2.1",
+]
+
+[project.optional-dependencies]
+video = [
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+    "ultralytics==8.4.191",
+    "opencv-python-headless==5.0.0.93",
+    "gdown==6.4.2",
+    "lightgbm==4.7.0",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+# CUDA 13.0 wheels for the NVIDIA track; AMD / CPU users change this index (requirements-video.txt).
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -133,6 +133,7 @@ def main(argv=None):
     ap.add_argument("--retrain", action="store_true", help="train the detector even if models/ has one")
     ap.add_argument("--train-device", default="auto")
     ap.add_argument("--detect-device", default="cpu", help="cpu keeps the submission reproducible")
+    ap.add_argument("--audio", action="store_true", help="use the referee's whistle from the video's audio")
     ap.add_argument("--verbose", action="store_true", help="DEBUG lines on the console too")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                     help="Config override passed to every prediction, e.g. --set emit_tag_weight=0")
@@ -154,7 +155,7 @@ def main(argv=None):
              "" if args.with_video else "  (video detector off; --with-video to add it)")
 
     data = ["--data-dir", args.data_dir] if args.data_dir else []
-    data_set = data + [x for item in args.set for x in ("--set", item)]
+    data_set = data + [x for item in args.set for x in ("--set", item)] + (["--audio"] if args.audio else [])
     sub_dir = os.path.join(ROOT, "submissions")
     tracking_csv = os.path.join(sub_dir, "{}_tracking.csv".format(args.name))
     video_csv = os.path.join(sub_dir, "{}_video.csv".format(args.name))
