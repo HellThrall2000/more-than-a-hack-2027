@@ -60,15 +60,23 @@ the console too.
 | V3 labelling tool: change points → ground-truth CSV | `labels.py` | `test_fixes` |
 | ATD noise simulator, synthetic match | `simulate_atd.py`, `synthetic.py` | everywhere |
 
-## Optional: video ball detector (`video/`)
+## Video ball recovery (`video/`) — used in the submission
 
-Recovers ball positions on missing-ball frames from the tactical video. Labels are free: where the
-ATD sees the ball, the homography projects it to a pixel. A small fully-convolutional net finds the
-ball in a crop of three stacked frames; at inference the crop is centred on where the ball layer
-expects the ball. `python -m possession.video.detect --evaluate` is the go / no-go gate: it hides
-visible balls and measures whether the detector recovers them (precision >= 0.9 required).
-Tested on a rendered synthetic clip only (`tests/test_video.py`); NOT run on the real video.
-Needs `requirements-video.txt`; the rest of the package does not.
+Full description, filters and inspection tools: [VIDEO_AND_DATA.md](../VIDEO_AND_DATA.md).
+
+* **In the submission:** `video/fullframe.py` runs Roboflow's pretrained `football-ball-detection`
+  (YOLOv8, Ultralytics, no training) on whole frames, on the GPU, for every graded frame without an
+  ATD ball; keeps on-pitch, non-static, steady tracks; `--evaluate` picks the confidence threshold
+  on frames where the ATD does see the ball. `video/write_atd.py` writes our ATD (the provided file
+  with only missing ball fields filled) and verifies it. `make final` runs both, then the rules.
+* **Tried, dropped:** the ROI detector (`dataset.py`, `model.py`, `train.py`, `infer.py`,
+  `evaluate.py`, `detect.py`): a small net searching a crop around the gap filler's guess. In long
+  gaps the guess is ~13 m off, so it recovered 0.02% of frames. Code kept; `full_run --with-video`
+  still drives it.
+* **Also kept, switched off:** `audio.py` (referee whistle; not audible on this track) and
+  `shape.py` (team from player shape, LightGBM).
+
+Needs `uv sync --extra video` (or `requirements-video.txt`); the rest of the package does not.
 
 ## NOT built — needs the data, other datasets, or people
 
@@ -78,9 +86,8 @@ Needs `requirements-video.txt`; the rest of the package does not.
   without seeing the match. They must be set on V2/V3, never on the public 5 minutes.
 * **Hand-labelled windows (V3)** and the timing offsets (`turnover_offset`, `stop_offset`) they set.
   Confirm with the organisers that validation-only hand labels are allowed (RULES.md) first.
-* Extrapolated line crossings for a ball lost on its way out; hull / last-line team descriptors;
-  `review.py` video overlays; `TECHNICAL.md`; stretch modules (broadcast sync, ROI ball recovery).
-* The real-data run itself, the two-machine `make repro-check`, and Python 3.11 testing.
+* Hull / last-line team descriptors; `review.py` video overlays; broadcast sync.
+* A repro check of the video stage on a different GPU or driver, and Python 3.11 testing.
 
 ## What the synthetic results do and do not say
 

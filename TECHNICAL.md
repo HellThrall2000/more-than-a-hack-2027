@@ -58,6 +58,10 @@ to. Recovering the ball improves every downstream layer at once.
 
 ### Ball recovery in detail
 
+Tools, filters, data checks and inspection commands are listed in full in
+[VIDEO_AND_DATA.md](VIDEO_AND_DATA.md).
+
+
 - **Detector:** Roboflow's public `football-ball-detection` model (YOLOv8, from
   [github.com/roboflow/sports](https://github.com/roboflow/sports), MIT repository; weights trained
   with Ultralytics, AGPL-3.0). **No fine-tuning, no training on this match.** Weights SHA-256:
