@@ -83,6 +83,35 @@ def ctrl_episodes(ctrl_team):
     return sorted(out)
 
 
+def extrapolated_crossings(est, reliable, vel, cfg: Config):
+    """(N,) bool: out of play for a ball lost on its way out (SITUATION.md S2, S9).
+
+    The ball's last reliable sighting before a gap is within oob_extrap_near of a line, moving
+    toward it faster than oob_extrap_speed, and the straight-line projection crosses the line
+    before the ball is seen again. The ball is then out from the projected crossing to the end of
+    the gap -- if the gap lasts at least oob_extrap_min_gap frames, because a ball that reappears
+    within a second was most likely never out.
+    """
+    n = len(est)
+    out = np.zeros(n, dtype=bool)
+    length, width = cfg.pitch_length, cfg.pitch_width
+    for a, b in zip(*runs(~reliable)):
+        if a == 0 or b - a < cfg.oob_extrap_min_gap or not reliable[a - 1]:
+            continue
+        (x, y), (vx, vy) = est[a - 1], vel[a - 1]
+        if not np.isfinite([x, y, vx, vy]).all():
+            continue
+        times = []
+        for dist, speed in ((x, -vx), (length - x, vx), (y, -vy), (width - y, vy)):
+            if 0.0 <= dist < cfg.oob_extrap_near and speed > cfg.oob_extrap_speed:
+                times.append(dist / speed)
+        if times:
+            cross = a - 1 + int(np.ceil(min(times) * cfg.fps))
+            if cross < b:
+                out[max(cross, a):b] = True
+    return out
+
+
 def out_of_play(est, src, sigma, vel, cfg: Config):
     """(oob, stationary) boolean arrays from the reconstructed ball (PLAN.md 5.3.6)."""
     from .gaps import SRC_INTERP, SRC_OBSERVED
@@ -100,6 +129,7 @@ def out_of_play(est, src, sigma, vel, cfg: Config):
         if seen >= cfg.oob_persist or ((b - a) >= cfg.oob_persist_unobserved
                                        and np.nanmax(sigma[a:b]) < 5.0):
             oob[a:b] = True
+    oob |= extrapolated_crossings(est, reliable, vel, cfg)
 
     # Stationary = every position in a window of stationary_frames lies within stationary_radius.
     # Velocity is too noisy for this: smoothed ball speed has ~1 m/s of jitter, which is above the

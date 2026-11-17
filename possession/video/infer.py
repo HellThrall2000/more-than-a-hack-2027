@@ -5,11 +5,14 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from .. import log as plog
 from ..config import Config
 from . import VideoConfig
 from .frames import crop_stack, gray_frames
 from .geometry import pitch_to_px, px_per_metre, px_to_pitch
 from .model import decode
+
+log = plog.get(__name__)
 
 
 def crop_sizes(prior_xy, prior_sigma, hs, cfg: Config, vcfg: VideoConfig):
@@ -23,7 +26,7 @@ def crop_sizes(prior_xy, prior_sigma, hs, cfg: Config, vcfg: VideoConfig):
 
 @torch.inference_mode()
 def detect(video_path, frames, prior_xy, prior_sigma, homography, model, cfg: Config, vcfg: VideoConfig,
-           device="cpu", expected_frames=None, log=None):
+           device="cpu", expected_frames=None):
     """Search the video around each prior. Returns (xy metres (n, 2), confidence (n,)).
 
     Frames whose prior is too vague (sigma > infer_max_sigma_m) or undefined are not searched and
@@ -40,6 +43,9 @@ def detect(video_path, frames, prior_xy, prior_sigma, homography, model, cfg: Co
     ok = (prior_sigma <= vcfg.infer_max_sigma_m) & np.isfinite(centre).all(axis=1) & (frames + lo >= 0)
 
     order = [i for i in np.argsort(frames, kind="stable") if ok[i]]
+    log.info("ROI search on %s: %d of %d frames have a usable prior (sigma <= %.1f m); crop sizes %s",
+             device, len(order), n, vcfg.infer_max_sigma_m,
+             {int(s): int(c) for s, c in zip(*np.unique(size[ok], return_counts=True))} if ok.any() else {})
     needed = sorted(set((frames[order][:, None] + np.array(vcfg.offsets)[None, :]).ravel().tolist()))
     conf = np.zeros(n)
     px = np.full((n, 2), np.nan)
@@ -55,7 +61,7 @@ def detect(video_path, frames, prior_xy, prior_sigma, homography, model, cfg: Co
             conf[i], px[i] = cc, (x0 + uu, y0 + vv)
 
     buffers, ptr = {}, 0
-    for idx, gray in gray_frames(video_path, needed, expected_frames):
+    for idx, gray in gray_frames(video_path, needed, expected_frames, "decoding for the ROI search"):
         buffers[idx] = gray
         while ptr < len(order) and frames[order[ptr]] + hi <= idx:
             i = order[ptr]
@@ -65,8 +71,6 @@ def detect(video_path, frames, prior_xy, prior_sigma, homography, model, cfg: Co
             if len(buckets[int(size[i])]) >= vcfg.infer_batch:
                 flush(int(size[i]))
             ptr += 1
-            if log and ptr % 5000 == 0:
-                log("  searched {} / {} frames".format(ptr, len(order)))
         for k in [k for k in buffers if ptr < len(order) and k < frames[order[ptr]] + lo]:
             del buffers[k]
     for s in list(buckets):

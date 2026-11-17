@@ -22,10 +22,12 @@ import sys
 
 import numpy as np
 
+from . import log as plog
 from .ball import SRC_NAMES
 from .config import DEFAULT, Config
 from .policy import metrics
 
+log = plog.get(__name__)
 NAMES = ("H", "A", "D")
 
 
@@ -68,6 +70,32 @@ def report(labels, details, gt, cfg: Config = DEFAULT):
     em_res = pm.evaluate(gt, em_codes)
     p("\nemission argmax with NO decoder: macroF1 {:.4f}  team acc (both alive) {:.4f}  alive/dead F1 {:.4f}".format(
         em_res["macro_f1"], em_res["team_acc_both_alive"], em_res["alive_dead_f1"]))
+
+    # team bias: where does it start? Each source's team call on the frames that are truly H or A.
+    p("\nteam calls on truly-alive frames, split by the true team (share called H / called A)")
+    pred_codes = pm.label_codes(labels)
+    sources = [("decoded output", pred_codes),
+               ("emission argmax", np.argmax(logp, axis=1))]
+    tagf = details.get("tagf")
+    if tagf is not None:
+        tp = tagf["poss"]
+        tag_call = np.where(tp[:, 0] > tp[:, 1], 0, np.where(tp[:, 1] > tp[:, 0], 1, -1))
+        sources.append(("Smart Tagging alone", tag_call))
+    ctrl = details["ball"].ctrl_team
+    sources.append(("ball control alone", ctrl))
+    for name, call in sources:
+        cells = []
+        for team, tname in ((0, "H"), (1, "A")):
+            sel = win & (gt == team) & (call >= 0)
+            n_team = int((win & (gt == team)).sum())
+            if not sel.any():
+                cells.append("true {}: no calls".format(tname))
+                continue
+            cells.append("true {} (covers {:.0%}): H {:.0%} A {:.0%}{}".format(
+                tname, sel.sum() / max(n_team, 1), float((call[sel] == 0).mean()), float((call[sel] == 1).mean()),
+                "  D {:.0%}".format(float((call[sel] == 2).mean())) if (call[sel] == 2).any() else ""))
+        p("  {:<22} {}".format(name, " | ".join(cells)))
+    p("  a source that leans one way on BOTH rows is biased; compare runs with --set emit_tag_weight=0")
 
     # candidate recall: does a boundary exist near every true transition?
     cands = details["cands"]
@@ -126,17 +154,25 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--gt", default="public")
     ap.add_argument("--data-dir", default=None)
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="override a Config value, e.g. --set emit_tag_weight=0 (repeatable)")
     args = ap.parse_args(argv)
+    plog.setup("diagnose")
 
     from .harness import resolve_gt
     from .ingest import load_match
     from .run import predict
 
+    cfg = DEFAULT.with_overrides(args.set)
+    if args.set:
+        log.info("config overrides %s -> config %s", args.set, cfg.digest())
     pm = metrics()
     gt = pm.label_codes(pm.read_label_csv(resolve_gt(args.gt)))
-    inputs = load_match(DEFAULT, args.data_dir)
-    labels, details = predict(inputs, DEFAULT, details=True)
-    print(report(labels, details, gt, DEFAULT))
+    with plog.stage("load the match"):
+        inputs = load_match(cfg, args.data_dir)
+    with plog.stage("predict"):
+        labels, details = predict(inputs, cfg, details=True)
+    log.info("diagnosis against %s:\n%s", args.gt, report(labels, details, gt, cfg))
     return 0
 
 

@@ -21,8 +21,11 @@ import time
 import numpy as np
 
 from . import ROOT
+from . import log as plog
 from .config import DEFAULT
 from .policy import metrics
+
+log = plog.get(__name__)
 
 REGISTRY = os.path.join(ROOT, "cache", "registry.jsonl")
 KEYS = ("spell_f1_mean", "macro_f1", "n_pred_spells", "n_gt_spells", "mean_spell_duration_s",
@@ -69,16 +72,17 @@ def main(argv=None):
     ap.add_argument("--gt", default="public")
     ap.add_argument("--bootstrap", type=int, default=0)
     args = ap.parse_args(argv)
+    plog.setup("harness")
     result = score_csv(args.submission, args.gt, args.bootstrap)
     row = log_result(result, os.path.basename(args.submission), args.gt)
-    print("{name}: spellF1 {s:.4f}  macroF1 {m:.4f}  possessions {p} (gt {g})  config {c}".format(
+    log.info("{name}: spellF1 {s:.4f}  macroF1 {m:.4f}  possessions {p} (gt {g})  config {c}".format(
         name=row["name"], s=result["spell_f1_mean"], m=result["macro_f1"],
         p=result["n_pred_spells"], g=result["n_gt_spells"], c=row["config"]))
     if result["spell_bootstrap_low"] is not None:
-        print("  spellF1 bootstrap 5-95%%: %.4f .. %.4f" % (result["spell_bootstrap_low"],
-                                                           result["spell_bootstrap_high"]))
+        log.info("  spellF1 bootstrap 5-95%%: %.4f .. %.4f", result["spell_bootstrap_low"],
+                 result["spell_bootstrap_high"])
     if str(args.gt) == "public":
-        print("  (public window: 17 possessions -- a correctness check, never a way to pick a version)")
+        log.info("  (public window: 17 possessions -- a correctness check, never a way to pick a version)")
     return 0
 
 

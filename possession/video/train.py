@@ -13,15 +13,19 @@ import argparse
 import dataclasses
 import os
 import sys
+import time
 
 import numpy as np
 import torch
 
 from .. import ROOT
+from .. import log as plog
 from ..config import DEFAULT
 from . import VideoConfig
 from .dataset import CropSet
 from .model import BallNet, decode, loss_fn, pick_device
+
+_log = plog.get(__name__)
 
 
 def split(cs: CropSet, vcfg: VideoConfig):
@@ -64,7 +68,8 @@ def sweep(conf, u, v, uv, present, vcfg: VideoConfig):
             if (present & (conf >= chosen["thr"])).any() else None}
 
 
-def fit(cs: CropSet, vcfg: VideoConfig, device, log=print):
+def fit(cs: CropSet, vcfg: VideoConfig, device, log=None):
+    log = log or _log.info
     torch.manual_seed(vcfg.seed)
     rng = np.random.RandomState(vcfg.seed)
     tr, va = split(cs, vcfg)
@@ -75,10 +80,14 @@ def fit(cs: CropSet, vcfg: VideoConfig, device, log=print):
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=vcfg.lr, total_steps=steps)
     log("training on {} crops, validating on {} ({} positive)".format(
         len(tr), len(va), int(cs.present[va].sum())))
+    t_start = time.perf_counter()
     for epoch in range(vcfg.epochs):
         model.train()
         perm = tr[rng.permutation(len(tr))]
         total = 0.0
+        t_epoch = time.perf_counter()
+        batches = plog.Progress(int(np.ceil(len(perm) / vcfg.batch)), "epoch {} batches".format(epoch + 1),
+                                "batches", every=30.0)
         for i in range(0, len(perm), vcfg.batch):
             b = perm[i:i + vcfg.batch]
             x = torch.from_numpy(cs.X[b]).to(device)
@@ -94,7 +103,14 @@ def fit(cs: CropSet, vcfg: VideoConfig, device, log=print):
             opt.step()
             sched.step()
             total += float(loss.detach()) * len(b)
-        log("  epoch {:2d}  loss {:.4f}".format(epoch + 1, total / len(perm)))
+            batches.update()
+        if not np.isfinite(total):
+            raise FloatingPointError("training loss is not finite in epoch {}".format(epoch + 1))
+        took = time.perf_counter() - t_epoch
+        left = (time.perf_counter() - t_start) / (epoch + 1) * (vcfg.epochs - epoch - 1)
+        log("  epoch {:2d}/{}  loss {:.4f}  {:.0f} crops/s  {}  ETA {}{}".format(
+            epoch + 1, vcfg.epochs, total / len(perm), len(perm) / took, plog.duration(took),
+            plog.duration(left), plog.memory()))
     conf, u, v = predict_crops(model, cs.X[va], device)
     report = sweep(conf, u, v, cs.uv[va], cs.present[va], vcfg)
     log("held-out: threshold {:.2f}  precision {:.3f}  recall {:.3f}  median error {} px  gate {}".format(
@@ -129,6 +145,7 @@ def main(argv=None):
     ap.add_argument("--epochs", type=int, default=None)
     ap.add_argument("--stride", type=int, default=None)
     args = ap.parse_args(argv)
+    plog.setup("video_train")
 
     from games import asset_paths
     from ..ball import clean as ball_clean
@@ -139,24 +156,26 @@ def main(argv=None):
     changes = {k: v for k, v in (("epochs", args.epochs), ("stride", args.stride)) if v}
     vcfg = dataclasses.replace(VideoConfig(), **changes)
     device = pick_device(args.device)
-    print("device:", device, getattr(torch.version, "hip", None) and "(ROCm/HIP {})".format(torch.version.hip) or "")
+    _log.info("device: %s %s", device, "(ROCm/HIP {}, MIOpen {})".format(
+        torch.version.hip, "on" if torch.backends.cudnn.enabled else "off") if torch.version.hip else "")
 
     if os.path.isfile(args.crops):
         cs = CropSet.load(args.crops)
-        print("loaded {} cached crops from {}".format(len(cs.X), args.crops))
+        _log.info("loaded %d cached crops from %s (delete it to rebuild)", len(cs.X), plog.rel(args.crops))
     else:
-        inputs = load_match(DEFAULT, args.data_dir)
-        video = args.video or asset_paths(data_dir=args.data_dir)["video"]
-        balls = ball_clean.clean(inputs.tracking.ball_xy, DEFAULT)
-        players = clean_players(inputs.tracking.players_xy, inputs.slot_team, DEFAULT)
-        print("decoding {} (sequential, a few minutes)...".format(video), flush=True)
-        cs = dataset.build(video, balls, players, inputs.homography, inputs.blocks, DEFAULT, vcfg,
-                           expected_frames=inputs.n_frames, log=lambda m: print(m, flush=True))
-        os.makedirs(os.path.dirname(args.crops), exist_ok=True)
-        cs.save(args.crops)
-    model, report = fit(cs, vcfg, device)
+        with plog.stage("build training crops from the tactical video"):
+            inputs = load_match(DEFAULT, args.data_dir)
+            video = args.video or asset_paths(data_dir=args.data_dir)["video"]
+            balls = ball_clean.clean(inputs.tracking.ball_xy, DEFAULT)
+            players = clean_players(inputs.tracking.players_xy, inputs.slot_team, DEFAULT)
+            cs = dataset.build(video, balls, players, inputs.homography, inputs.blocks, DEFAULT, vcfg,
+                               expected_frames=inputs.n_frames)
+            os.makedirs(os.path.dirname(args.crops), exist_ok=True)
+            cs.save(args.crops)
+    with plog.stage("train the ball detector on {}".format(device)):
+        model, report = fit(cs, vcfg, device)
     save_model(args.out, model, vcfg, report)
-    print("saved", args.out)
+    _log.info("saved %s", plog.rel(args.out))
     return 0
 
 

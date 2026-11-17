@@ -64,13 +64,20 @@ def test_blocks_kickoffs_and_ungraded_frames(match):
 
 
 def test_a_missing_ball_alone_never_creates_a_possession_change(match):
-    """With no ball at all the system must not invent flips from nothing."""
+    """With no ball at all the system must not invent team flips from nothing.
+
+    Stoppages may still be found -- the players stopping is evidence that needs no ball (calm.py)
+    -- but the D it produces must be real stoppages, and no H <-> A change may appear.
+    """
     inp = to_inputs(match, cfg, seed=2, with_tags=False)
     inp.tracking.ball_xy[:] = np.nan
     labels = predict(inp, cfg)
     codes = pm.label_codes(labels)
-    n_spells = len(pm.possession_spells(codes, pm.valid_runs(codes)))
-    assert n_spells <= 3
+    flips = [t for t in pm.transitions(codes, pm.valid_runs(codes)) if t[1] < 2 and t[2] < 2]
+    assert flips == []
+    dead = codes == 2
+    if dead.any():
+        assert (match.truth[dead] == 2).mean() > 0.7
 
 
 def test_emission_gives_no_team_evidence_where_the_ball_is_unknown(match):

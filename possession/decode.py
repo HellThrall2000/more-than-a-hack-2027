@@ -15,12 +15,16 @@ sampling for the minimum-Bayes-risk step).
 from __future__ import annotations
 
 import dataclasses
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
 
 from .candidates import Candidates
+from . import log as plog
 from .config import Config
+
+log = plog.get(__name__)
 
 H, A, D = 0, 1, 2
 NEG = -1e18
@@ -37,16 +41,18 @@ class BlockProblem:
     stop: np.ndarray
     restart: np.ndarray
     restart_pref: np.ndarray        # (M, 2)
+    start_bonus: Tuple[float, float, float] = (0.0, 0.0, 0.0)    # added to the first segment's label
 
 
-def make_problem(cands: Candidates, a, b, start_labels, cfg: Config) -> BlockProblem:
+def make_problem(cands: Candidates, a, b, start_labels, cfg: Config, start_bonus=(0.0, 0.0, 0.0)) -> BlockProblem:
     sel = (cands.frame > a) & (cands.frame < b)
     zeros = np.zeros(1)
     nodes = np.concatenate(([a], cands.frame[sel], [b])).astype(np.int64)
     pad = lambda x: np.concatenate((zeros, x[sel], zeros))      # noqa: E731
     return BlockProblem(a, b, tuple(start_labels), nodes, pad(cands.turn), pad(cands.stop),
                         pad(cands.restart),
-                        np.vstack((np.zeros((1, 2)), cands.restart_pref[sel], np.zeros((1, 2)))))
+                        np.vstack((np.zeros((1, 2)), cands.restart_pref[sel], np.zeros((1, 2)))),
+                        tuple(start_bonus))
 
 
 def _logsumexp(x, axis=None):
@@ -66,6 +72,7 @@ class Lattice:
         self.rel = self.nodes - prob.a
         self.init = np.full(3, NEG)
         self.init[list(prob.start_labels)] = 0.0
+        self.init += np.asarray(prob.start_bonus, dtype=np.float64)
         self.bmat = self._transition_bonuses()
         self.lo = np.searchsorted(self.nodes, self.nodes - cfg.dec_max_segment, side="left")
 
@@ -99,12 +106,14 @@ class Lattice:
         return (self.P[self.rel[j], k] - self.P[self.rel[i], k]
                 + self.dur_logpdf(self.nodes[j] - self.nodes[i], k))
 
-    def forward(self, mode="max"):
+    def forward(self, mode="max", desc=None):
         red = (lambda x: np.max(x)) if mode == "max" else (lambda x: _logsumexp(x))  # noqa: E731
         M = self.M
         f = np.full((M, 3), NEG)
         h = np.full((M, 3), NEG)
+        progress = plog.Progress(M - 1, desc or "decoder " + mode, "nodes")
         for j in range(1, M):
+            progress.set(j)
             lo = max(1, int(self.lo[j]))
             idx = np.arange(lo, j)
             for k in range(3):
@@ -162,24 +171,31 @@ class Lattice:
         return int(np.searchsorted(np.cumsum(p), rng.rand(), side="right").clip(0, len(p) - 1))
 
 
-def decode_block(logp, prob: BlockProblem, cfg: Config, n_samples=0, seed=0):
+def decode_block(logp, prob: BlockProblem, cfg: Config, n_samples=0, seed=0, name="block"):
     """Most likely segmentation of one block and, optionally, posterior samples of it."""
+    t0 = time.time()
     lat = Lattice(logp, prob, cfg)
-    lat.forward("max")
+    lat.forward("max", "{}: Viterbi pass".format(name))
     best = lat.trace(sample=False)
     samples = []
     if n_samples:
-        lat.forward("sum")
+        lat.forward("sum", "{}: posterior pass".format(name))
         rng = np.random.RandomState(seed)
-        samples = [lat.trace(sample=True, rng=rng) for _ in range(n_samples)]
+        samples = [lat.trace(sample=True, rng=rng)
+                   for _ in plog.track(range(n_samples), n_samples, "{}: posterior samples".format(name), "samples")]
+    log.info("  %s: frames %d-%d, %d candidate nodes -> %d segments (%d possessions, %d dead)  %.1fs",
+             name, prob.a, prob.b - 1, lat.M, len(best), sum(1 for *_, k in best if k != D),
+             sum(1 for *_, k in best if k == D), time.time() - t0)
     return best, samples
 
 
-def decode_match(logp, cands: Candidates, blocks, kickoffs, cfg: Config, n_samples=0):
+def decode_match(logp, cands: Candidates, blocks, kickoffs, cfg: Config, n_samples=0, kickoff_team=None):
     """Decode every graded block. Returns [(half, best_segments, samples)].
 
     A block that is dead until a known kick-off (the second half: frames 110808-113741 are all D)
     has that prefix fixed to D and only the rest decoded, with an alive start label.
+    `kickoff_team` ({half: 0 home / 1 away}) makes the kicking-off team the preferred first
+    possession by dec_kickoff_team_bonus -- a preference, so strong contrary evidence still wins.
     """
     results = []
     for half, a, b in blocks:
@@ -192,7 +208,11 @@ def decode_match(logp, cands: Candidates, blocks, kickoffs, cfg: Config, n_sampl
             a_dec, start_labels = max(a, kick), (H, A)
         else:
             a_dec = a
-        prob = make_problem(cands, a_dec, b, start_labels, cfg)
-        best, samples = decode_block(logp, prob, cfg, n_samples, seed=cfg.seed + half)
+        bonus = [0.0, 0.0, 0.0]
+        team = (kickoff_team or {}).get(half)
+        if kick is not None and team is not None:
+            bonus[int(team)] = cfg.dec_kickoff_team_bonus
+        prob = make_problem(cands, a_dec, b, start_labels, cfg, bonus)
+        best, samples = decode_block(logp, prob, cfg, n_samples, seed=cfg.seed + half, name="half {}".format(half))
         results.append((half, prefix + best, [prefix + s for s in samples]))
     return results

@@ -1,6 +1,6 @@
 """Run the trained detector over the match and save its detections for the pipeline.
 
-    python -m possession.video.detect --evaluate          # first: does it pass the gate? (CPU)
+    python -m possession.video.detect --evaluate          # first: does it pass the gate? (CPU; exit 3 = no)
     python -m possession.video.detect                      # then: write cache/video_ball.npz
 
 and then  python -m possession.run --video-ball cache/video_ball.npz  uses them.
@@ -18,11 +18,17 @@ import sys
 import numpy as np
 
 from .. import ROOT
+from .. import log as plog
 from ..ball import build_ball_state
 from ..ball.gaps import SRC_INTERP, SRC_OBSERVED
 from ..config import DEFAULT
 from ..players import clean_players
 from .train import load_model
+
+log = plog.get(__name__)
+
+
+GATE_FILE = os.path.join(ROOT, "cache", "video_gate.json")
 
 
 def main(argv=None):
@@ -32,49 +38,67 @@ def main(argv=None):
     ap.add_argument("--model", default=os.path.join(ROOT, "models", "ball_detector.pt"))
     ap.add_argument("--out", default=os.path.join(ROOT, "cache", "video_ball.npz"))
     ap.add_argument("--device", default="cpu", help="cpu keeps the output reproducible (default)")
-    ap.add_argument("--evaluate", action="store_true", help="run the go / no-go gate instead")
+    ap.add_argument("--evaluate", action="store_true",
+                    help="run the go / no-go gate instead; exit code 0 = passed, 3 = not passed")
     args = ap.parse_args(argv)
+    plog.setup("video_gate" if args.evaluate else "video_detect")
 
     from games import asset_paths
     from ..ingest import load_match
 
     cfg = DEFAULT
+    if not os.path.isfile(args.model):
+        log.error("no detector at %s -- train one first: python -m possession.video.train", args.model)
+        return 1
     model, vcfg, train_report = load_model(args.model, args.device)
     thr = train_report["thr"]
-    inputs = load_match(cfg, args.data_dir)
-    video = args.video or asset_paths(data_dir=args.data_dir)["video"]
-    tr = inputs.tracking
-    players = clean_players(tr.players_xy, inputs.slot_team, cfg)
-    log = lambda m: print(m, flush=True)        # noqa: E731
+    log.info("detector %s: threshold %.2f from training (held-out precision %.3f, recall %.3f); device %s",
+             plog.rel(args.model), thr, train_report["at_thr"]["precision"],
+             train_report["at_thr"]["recall"], args.device)
+    with plog.stage("load the match"):
+        inputs = load_match(cfg, args.data_dir)
+        video = args.video or asset_paths(data_dir=args.data_dir)["video"]
+        tr = inputs.tracking
+        players = clean_players(tr.players_xy, inputs.slot_team, cfg)
 
     if args.evaluate:
         from .evaluate import evaluate
-        result = evaluate(model, vcfg, thr, video, tr.ball_xy, players, inputs.slot_team, inputs.homography,
-                          inputs.blocks, cfg, device=args.device, expected_frames=inputs.n_frames)
-        print(json.dumps(result, indent=2))
-        g = result["gate"]
-        print("\nGATE:", "PASSED" if g["met"] and g["worthwhile"] else
-              "NOT PASSED (precision {} of {} required; worthwhile coverage: {})".format(
-                  result["overall"]["precision"], g["precision_required"], g["worthwhile"]))
-        return 0
+        with plog.stage("go / no-go gate: hide visible balls and search for them"):
+            result = evaluate(model, vcfg, thr, video, tr.ball_xy, players, inputs.slot_team, inputs.homography,
+                              inputs.blocks, cfg, device=args.device, expected_frames=inputs.n_frames)
+        log.debug("gate details: %s", json.dumps(result))
+        os.makedirs(os.path.dirname(GATE_FILE), exist_ok=True)
+        with open(GATE_FILE, "w") as handle:
+            json.dump(result, handle, indent=2)
+        o, g = result["overall"], result["gate"]
+        passed = bool(g["met"] and g["worthwhile"])
+        log.info("gate on %d hidden windows (%d frames): precision %s (required %s), coverage %s, "
+                 "median error filler %s m -> filler+video %s m",
+                 result["n_windows"], result["n_frames"], o.get("precision"), g["precision_required"],
+                 o.get("coverage"), o.get("filler_median_m"), o.get("filler_plus_video_median_m"))
+        log.info("GATE: %s  (details in %s)", "PASSED" if passed else "NOT PASSED -- do not use the video detections",
+                 plog.rel(GATE_FILE))
+        return 0 if passed else 3
 
-    ball = build_ball_state(tr.ball_xy, players, inputs.slot_team, inputs.blocks, cfg)
-    gap = np.zeros(inputs.n_frames, dtype=bool)
-    for _, a, b in inputs.blocks:
-        gap[a:b] = ~np.isin(ball.src[a:b], (SRC_OBSERVED, SRC_INTERP))
-    frames = np.flatnonzero(gap)
-    print("searching {} missing-ball frames".format(len(frames)), flush=True)
+    with plog.stage("ball layer: find the missing-ball frames"):
+        ball = build_ball_state(tr.ball_xy, players, inputs.slot_team, inputs.blocks, cfg)
+        gap = np.zeros(inputs.n_frames, dtype=bool)
+        for _, a, b in inputs.blocks:
+            gap[a:b] = ~np.isin(ball.src[a:b], (SRC_OBSERVED, SRC_INTERP))
+        frames = np.flatnonzero(gap)
+        log.info("%d graded frames have no reliable ball position", len(frames))
     from .infer import detect
-    xy_f, conf_f = detect(video, frames, ball.xy[frames], ball.sigma[frames], inputs.homography, model, cfg, vcfg,
-                          args.device, inputs.n_frames, log)
+    with plog.stage("search the tactical video around the ball layer's estimate"):
+        xy_f, conf_f = detect(video, frames, ball.xy[frames], ball.sigma[frames], inputs.homography, model, cfg,
+                              vcfg, args.device, inputs.n_frames)
     xy = np.full((inputs.n_frames, 2), np.nan, dtype=np.float32)
     conf = np.zeros(inputs.n_frames, dtype=np.float32)
     xy[frames], conf[frames] = xy_f, conf_f
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     np.savez_compressed(args.out, xy=xy, conf=conf, thr=np.float32(thr))
-    print("detections at or above the validation threshold {:.2f}: {} of {} searched frames".format(
-        thr, int((conf >= thr).sum()), len(frames)))
-    print("saved", args.out)
+    log.info("detections at or above the threshold %.2f: %d of %d searched frames (%.1f%%)", thr,
+             int((conf >= thr).sum()), len(frames), 100.0 * float((conf_f >= thr).mean()) if len(frames) else 0.0)
+    log.info("saved %s", plog.rel(args.out))
     return 0
 
 

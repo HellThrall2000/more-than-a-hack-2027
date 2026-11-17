@@ -13,6 +13,7 @@ import dataclasses
 import numpy as np
 
 from .ball import BallState
+from .calm import calm_probability
 from .config import Config
 from .players import nearest_by_team, velocity
 from .restarts import RESTART_TYPES, formation_scores
@@ -110,6 +111,7 @@ def build_features(ball: BallState, players_xy, desc, slot_team, attack, blocks,
 
     cols["mean_speed_h"], cols["mean_speed_a"] = desc["mean_speed"][:, 0], desc["mean_speed"][:, 1]
     cols["walk_frac"] = desc["walk_frac"]
+    cols["calm"] = calm_probability(desc["mean_speed"], blocks, cfg)
     cols["spread_x_h"], cols["spread_x_a"] = desc["spread"][:, 0, 0], desc["spread"][:, 1, 0]
     cols["cent_att_h"] = np.full(n, np.nan, dtype=np.float32)
     cols["cent_att_a"] = np.full(n, np.nan, dtype=np.float32)
@@ -134,5 +136,5 @@ def build_features(ball: BallState, players_xy, desc, slot_team, attack, blocks,
 
     names = list(cols)
     F = np.column_stack([np.asarray(cols[k], dtype=np.float32) for k in names])
-    aux = {"dist": dist, "slot": slot, "d_star": d_star, "rest": rest, "slow": slow}
+    aux = {"dist": dist, "slot": slot, "d_star": d_star, "rest": rest, "slow": slow, "attack": attack, "players": players_xy, "slot_team": slot_team}
     return FeatureSet(F, names), aux

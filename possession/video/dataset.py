@@ -6,10 +6,13 @@ import dataclasses
 
 import numpy as np
 
+from .. import log as plog
 from ..config import Config
 from . import VideoConfig
 from .frames import crop_stack, gray_frames
 from .geometry import pitch_to_px
+
+log = plog.get(__name__)
 
 
 @dataclasses.dataclass
@@ -40,13 +43,14 @@ def sample_frames(ball_clean, blocks, vcfg: VideoConfig, rng):
 
 
 def build(video_path, ball_clean, players_xy, homography, blocks, cfg: Config, vcfg: VideoConfig,
-          expected_frames=None, log=None):
+          expected_frames=None):
     """Positive crops (ball somewhere in the window) and negatives (centred on players, ball outside)."""
     rng = np.random.RandomState(vcfg.seed)
     sample = sample_frames(ball_clean, blocks, vcfg, rng)
     size, half = vcfg.crop, vcfg.crop / 2.0
     ball_px = pitch_to_px(homography[sample], ball_clean[sample], cfg)
     needed = sorted(set((sample[:, None] + np.array(vcfg.offsets)[None, :]).ravel().tolist()))
+    log.info("training crops: %d frames with a reliably seen ball sampled (1 in %d)", len(sample), vcfg.stride)
 
     cap = len(sample) * (vcfg.pos_per_frame + vcfg.neg_per_frame)
     X = np.empty((cap, len(vcfg.offsets), size, size), dtype=np.uint8)     # preallocated: a list + stack would double the peak
@@ -54,7 +58,7 @@ def build(video_path, ball_clean, players_xy, homography, blocks, cfg: Config, v
     uv, present, frame = [], [], []
     buffers, ptr = {}, 0
     lo, hi = min(vcfg.offsets), max(vcfg.offsets)
-    for idx, gray in gray_frames(video_path, needed, expected_frames):
+    for idx, gray in gray_frames(video_path, needed, expected_frames, "decoding for training crops"):
         buffers[idx] = gray
         while ptr < len(sample) and sample[ptr] + hi <= idx:
             f = sample[ptr]
@@ -88,11 +92,12 @@ def build(video_path, ball_clean, players_xy, homography, blocks, cfg: Config, v
                     present.append(False)
                     frame.append(f)
             ptr += 1
-            if log and ptr % 2000 == 0:
-                log("  {} / {} frames".format(ptr, len(sample)))
         for k in [k for k in buffers if ptr < len(sample) and k < sample[ptr] + lo]:
             del buffers[k]
     if not count:
         raise RuntimeError("no training crops produced: wrong video, or no ball in the tracking?")
+    n_pos = int(np.sum(present))
+    log.info("training crops: %d (%d with the ball, %d without); %d sampled frames had the ball off-image",
+             count, n_pos, count - n_pos, len(sample) - n_pos // max(1, vcfg.pos_per_frame))
     return CropSet(X[:count], np.array(uv, dtype=np.float32), np.array(present),
                    np.array(frame, dtype=np.int32))

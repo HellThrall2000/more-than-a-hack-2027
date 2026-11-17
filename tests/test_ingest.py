@@ -1,6 +1,6 @@
 import numpy as np
 
-from possession.ingest import parse_atd
+from possession.ingest import atd_cache_path, parse_atd
 
 
 def test_parse_atd_roundtrip(tmp_path):
@@ -19,3 +19,19 @@ def test_parse_atd_roundtrip(tmp_path):
     np.testing.assert_allclose(tr.ball_extra[0], [5.0, 0.3])
     assert np.isnan(tr.ball_xy[1]).all()
     assert np.isnan(tr.players_xy[2]).all() and np.isnan(tr.ball_xy[2]).all()    # absent frame stays NaN
+
+
+def test_atd_cache_key_follows_the_contents_not_only_the_size(tmp_path):
+    """Re-running the ball detector rewrites coordinates without changing the byte count; the parse
+    cache must not hand back the old values then."""
+    a, b, c = (tmp_path / name for name in ("a.txt", "b.txt", "c.txt"))
+    a.write_text("1:0.50000,0.50000,0.0")
+    b.write_text("1:0.50000,0.50001,0.0")             # same length, one digit different
+    c.write_text("1:0.50000,0.50000,0.0")             # same contents as a
+
+    def key(path):
+        return atd_cache_path(str(path), 100, str(tmp_path))
+
+    assert a.stat().st_size == b.stat().st_size
+    assert key(a) != key(b)
+    assert key(a) == key(c)

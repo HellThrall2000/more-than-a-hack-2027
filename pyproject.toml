@@ -1,0 +1,60 @@
+# uv project file. One command sets everything up:
+#
+#   uv sync                         # the submission pipeline (numpy / pandas) + tests
+#   uv sync --extra video           # + GPU ball detection (ROCm PyTorch for the RX 9060 XT, Ultralytics) and LightGBM
+#
+# then run anything with `uv run`, e.g. `uv run python -m possession.run`, or keep using `make`
+# (the Makefile finds .venv/Scripts/python.exe or .venv/bin/python, the environment uv manages).
+# The requirements-*.txt files are kept for pip users; this file and uv.lock are the source of truth.
+
+[project]
+name = "possession"
+version = "0.4.0"
+description = "Frame-by-frame team possession from automatic tracking (More Than A Hack 2027)"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "numpy==2.5.4",
+    "pandas==3.0.6",
+    "psutil==7.2.2",
+    "structlog==26.1.0",
+    "tenacity==9.2.1",
+]
+
+[project.optional-dependencies]
+video = [
+    "torch[device-gfx1200]==2.14.0+rocm10.1.0",
+    "torchvision[device-gfx1200]==0.29.0a0+rocm10.1.0",
+    "amd-torchvision-device-gfx1200==0.29.0a0+rocm10.1.0",   # a pre-release: uv needs it named
+    "ultralytics==8.4.191",
+    "opencv-python-headless==5.0.0.93",
+    "gdown==6.4.2",
+    "lightgbm==4.7.0",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.uv]
+package = false
+index-strategy = "unsafe-best-match"
+# triton (compiled kernels, Linux only) is a hard dependency of the Linux torch wheel; the Windows
+# wheel has none, but uv resolves both from one lock, so say so here.
+override-dependencies = ["triton==3.8.0+git669b31ac.rocm10.1.0 ; sys_platform == 'linux'"]
+# The AMD wheels exist for these two platforms only (Windows 11 and Linux, x86-64).
+environments = ["sys_platform == 'win32' and platform_machine == 'AMD64'",
+                "sys_platform == 'linux' and platform_machine == 'x86_64'"]
+default-groups = ["dev"]
+
+# AMD ROCm wheels for the Radeon RX 9060 XT (RDNA4, gfx1200), from AMD's own index. That index holds
+# torch, torchvision and the ROCm runtime they need (rocm-sdk-*, amd-torch-device-*), none of which is
+# on PyPI. It is a regular index searched next to PyPI, with "unsafe-best-match" so that uv looks at
+# both for every package: [tool.uv.sources] only covers the project's own dependencies, not torch's.
+# Every exact pin above names a version that exists on one of the two, so nothing can be swapped
+# in silently. Other Radeon cards: change "device-gfx1200" above to your GFX target (AMD's "Install
+# PyTorch for ROCm" page lists them). The NVIDIA track (CUDA 13 wheels) is on feat-nvidia-track.
+[[tool.uv.index]]
+name = "amd-rocm"
+url = "https://stable.repo.amd.com/rocm/whl-next/"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -24,8 +24,11 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from . import ROOT
+from . import log as plog
 from .config import Config, DEFAULT
 from .util import runs
+
+log = plog.get(__name__)
 
 
 def graded_mask(blocks, n):
@@ -117,28 +120,37 @@ def main(argv=None):
     ap.add_argument("--data-dir", default=None)
     ap.add_argument("--out", default=os.path.join(ROOT, "cache", "audit.json"))
     args = ap.parse_args(argv)
+    plog.setup("audit")
 
     from games import require
     from .ingest import load_match
     from starter import load_atd, load_homography, load_smart_tagging
 
     cfg = DEFAULT
-    inputs = load_match(cfg, args.data_dir)
-    report = {"arrays": audit_arrays(inputs, cfg)}
-    report["metadata"] = audit_metadata(require(["atd_meta"], data_dir=args.data_dir)[0])
-    report["alignment_atd"] = load_atd.check_alignment_raw(data_dir=args.data_dir)
-    report["alignment_homography"] = {k: bool(v) if isinstance(v, (bool, np.bool_)) else v
-                                      for k, v in load_homography.check_alignment(data_dir=args.data_dir).items()}
-    report["time_base_tags"] = load_smart_tagging.check_time_base(inputs.tags)
+    with plog.stage("load the match"):
+        inputs = load_match(cfg, args.data_dir)
+    with plog.stage("array statistics"):
+        report = {"arrays": audit_arrays(inputs, cfg)}
+        report["metadata"] = audit_metadata(require(["atd_meta"], data_dir=args.data_dir)[0])
+    with plog.stage("alignment checks (ATD, homography, Smart Tagging time base)"):
+        report["alignment_atd"] = load_atd.check_alignment_raw(data_dir=args.data_dir)
+        report["alignment_homography"] = {k: bool(v) if isinstance(v, (bool, np.bool_)) else v
+                                          for k, v in load_homography.check_alignment(data_dir=args.data_dir).items()}
+        report["time_base_tags"] = load_smart_tagging.check_time_base(inputs.tags)
     if inputs.homography is not None:
-        report["camera"] = audit_camera(inputs.tracking.ball_xy, inputs.homography,
-                                        inputs.homography_valid, inputs.blocks, cfg)
+        with plog.stage("camera"):
+            report["camera"] = audit_camera(inputs.tracking.ball_xy, inputs.homography,
+                                            inputs.homography_valid, inputs.blocks, cfg)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w") as handle:
         json.dump(report, handle, indent=2, default=str)
-    print(json.dumps(report, indent=2, default=str))
+    log.info("audit report, also saved to %s:\n%s", plog.rel(args.out),
+             json.dumps(report, indent=2, default=str))
     ok = report["alignment_atd"]["agrees"] and report["time_base_tags"]["agrees"]
-    print("\nALIGNMENT OK" if ok else "\nALIGNMENT MISMATCH -- stop and report it, do not patch around it")
+    if ok:
+        log.info("ALIGNMENT OK")
+    else:
+        log.error("ALIGNMENT MISMATCH -- stop and report it, do not patch around it")
     return 0 if ok else 1
 
 
