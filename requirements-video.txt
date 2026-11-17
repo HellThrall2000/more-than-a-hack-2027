@@ -2,7 +2,7 @@
 # requirements-solution.txt.
 #
 # opencv: the headless build is enough -- nothing opens a window.
-# torch: install it separately -- it is not pinned here on purpose.
+# torch: pinned for the RX 9060 XT in pyproject.toml / uv.lock (`make setup`); for pip, see below.
 #
 #   AMD Radeon RX 9060 XT (gfx1200), Windows 11 -- verified 2026-10-24 with Python 3.13:
 #     uv venv --seed --python 3.13 .venv
@@ -15,6 +15,5 @@
 #   NVIDIA:   pip install torch --index-url https://download.pytorch.org/whl/cu126   (or newer)
 #   CPU only: pip install torch --index-url https://download.pytorch.org/whl/cpu
 #
-# Tested here with opencv-python-headless 5.0.0 and torch 2.14.1 (CPU), Python 3.14.
 -r requirements-solution.txt
 opencv-python-headless

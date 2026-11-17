@@ -14,8 +14,10 @@ same file on any machine.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,11 +45,28 @@ class _Transient(AudioError):
     """Worth retrying: a busy disk, a killed child process, a timeout."""
 
 
+def _exe(name):
+    """Full path of ffmpeg / ffprobe: on PATH, else where `winget install Gyan.FFmpeg` unpacks it.
+
+    winget adds its folder to the PATH of terminals opened AFTER the install; a terminal (or an
+    editor) that was already open does not see it, so look there too instead of failing.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    packages = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages")
+    for hit in sorted(glob.glob(os.path.join(packages, "Gyan.FFmpeg*", "*", "bin", name + ".exe"))):
+        return hit
+    return name
+
+
 def _run(cmd, timeout):
+    cmd = [_exe(cmd[0])] + list(cmd[1:])
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
-        raise AudioError("{} not found: install ffmpeg (sudo apt install ffmpeg)".format(cmd[0])) from None
+        raise AudioError("{} not found: install ffmpeg (Windows: winget install Gyan.FFmpeg, then open a new "
+                         "terminal; Linux: sudo apt install ffmpeg)".format(os.path.basename(cmd[0]))) from None
     except subprocess.TimeoutExpired as exc:
         raise _Transient("{} timed out after {} s".format(cmd[0], timeout)) from exc
 

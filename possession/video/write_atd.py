@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 
 import numpy as np
@@ -95,6 +96,28 @@ def verify(raw_path, out_path, n_frames, pitch):
             "line_count_same": sum(1 for _ in open(raw_path)) == sum(1 for _ in open(out_path))}
 
 
+def link_or_copy(src, dst):
+    """Make `dst` another name for `src`: symlink, else hard link, else copy.
+
+    Windows refuses symlinks without a special privilege (WinError 1314); a hard link on the same
+    drive needs none and costs no space. Copying is the last resort (the video is large).
+    """
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        os.symlink(src, dst)
+        return "symlink"
+    except (OSError, NotImplementedError):
+        pass
+    try:
+        os.link(src, dst)
+        return "hard link"
+    except OSError:
+        pass
+    log.warning("cannot link %s; copying it instead", plog.rel(src))
+    shutil.copyfile(src, dst)
+    return "copy"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--detections", default=DETECTIONS)
@@ -114,7 +137,7 @@ def main(argv=None):
     os.makedirs(os.path.dirname(out["atd_raw"]), exist_ok=True)
     for key, path in src.items():
         if key != "atd_raw" and os.path.exists(path) and not os.path.lexists(out[key]):
-            os.symlink(os.path.abspath(path), out[key])
+            link_or_copy(os.path.abspath(path), out[key])
     game = GAMES["BAR-ATH"]
     with plog.stage("write our ATD"):
         filled = write(src["atd_raw"], out["atd_raw"], z["xy"], z["conf"], float(z["thr"]), game["pitch"],

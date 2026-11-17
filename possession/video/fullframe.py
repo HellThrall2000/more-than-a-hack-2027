@@ -71,8 +71,11 @@ def load_model(device):
     import logging
     logging.getLogger("ultralytics").setLevel(logging.ERROR)     # one deprecation warning per batch otherwise
     from ultralytics import YOLO
+    from .model import pick_device
     model = YOLO(ensure_weights())
-    model.to(device)
+    # pick_device keeps an AMD card's MIOpen switched off (its batch-norm kernel does not compile on
+    # the RX 9060 XT under Windows, and the native kernels are faster); a no-op on other devices.
+    model.to(pick_device(device))
     return model
 
 

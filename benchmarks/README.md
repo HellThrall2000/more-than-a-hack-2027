@@ -16,6 +16,10 @@ the reference timeline (DATA.md); the broadcast video is never used. It times:
 
 It runs on every available device, and on ROCm with MIOpen both on and off.
 
+`scripts/run_all.sh` also writes `<UTC time>_run-all.json` here (`possession/run_record.py`): the time
+and status of every step of the round, software and hardware versions, git state and the aggregate
+scores of each prediction on the public window. Nothing frame-level.
+
 ## What may live here (hackathon rules)
 
 | allowed in `results/` | never here |
@@ -44,6 +48,13 @@ Measured on an AMD Radeon RX 9060 XT (gfx1200, 16 GB), Windows 11, torch 2.14.0+
 So `possession.video.model.pick_device` switches MIOpen off on ROCm. Re-test with `miopen=True`
 after a ROCm or driver update.
 
+**Whole match on the real video** (RX 9060 XT, `run_all`): the detector self-check took 4 minutes;
+the detection pass over all 190,198 frames took 45 and 46 minutes in two runs (about 70 frames/s)
+and found a ball in 12,414 of the 64,687 frames it searched, the same 12,414 at the same positions
+both times (`possession.video.fullframe --compare`: identical, none moved by 1 cm).
+
 **Reproducibility.** Training on the GPU is not bit-for-bit repeatable. The submission path keeps
 inference on the CPU (`infer.py`), so the CSV is identical on any machine *given the same
-weights*.
+weights*. That describes the first, dropped ROI detector. The full-frame detector the submission uses
+runs on the GPU. Its detections repeat exactly on one card (two full runs on the RX 9060 XT gave the
+same CSV byte for byte) and differ between GPU families (TECHNICAL.md, section 5).

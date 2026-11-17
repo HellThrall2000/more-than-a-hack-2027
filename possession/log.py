@@ -226,7 +226,7 @@ class Progress:
     Plain log lines rather than a redrawn bar, so the file log reads the same as the console.
     """
 
-    def __init__(self, total, desc, unit="", every=10.0, logger=None):
+    def __init__(self, total, desc, unit="", every=5.0, logger=None):
         self.total, self.desc, self.unit, self.every = max(int(total), 0), desc, unit, every
         self.logger = logger or get()
         self.done = 0
@@ -275,7 +275,7 @@ class Progress:
             self.close()
 
 
-def track(iterable, total, desc, unit="", every=10.0, logger=None):
+def track(iterable, total, desc, unit="", every=5.0, logger=None):
     """Iterate with progress lines (see Progress)."""
     with Progress(total, desc, unit, every, logger) as p:
         for item in iterable:

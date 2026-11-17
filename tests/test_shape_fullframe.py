@@ -145,3 +145,22 @@ def test_our_atd_copies_every_line_and_fills_only_missing_balls(tmp_path):
     assert lines[1].split(":")[2].startswith("0.50000,0.50000,")
     rep = verify(str(raw), str(out), 3, (105.3, 68.0))
     assert rep["players_identical"] and rep["original_balls_identical"] and rep["frames_filled"] == 1
+
+
+def test_link_or_copy_falls_back_when_symlinks_are_not_allowed(tmp_path, monkeypatch):
+    # Windows without the symlink privilege raises WinError 1314 (an OSError) from os.symlink
+    from possession.video import write_atd
+    src = tmp_path / "video.mp4"
+    src.write_bytes(b"frames")
+
+    def refuse(*args, **kwargs):
+        raise OSError(1314, "A required privilege is not held by the client")
+
+    monkeypatch.setattr(write_atd.os, "symlink", refuse)
+    dst = tmp_path / "out" / "tactical" / "video.mp4"
+    assert write_atd.link_or_copy(str(src), str(dst)) == "hard link"
+    assert dst.read_bytes() == b"frames"
+    dst2 = tmp_path / "out2" / "video.mp4"
+    monkeypatch.setattr(write_atd.os, "link", refuse)
+    assert write_atd.link_or_copy(str(src), str(dst2)) == "copy"
+    assert dst2.read_bytes() == b"frames"

@@ -11,6 +11,7 @@ The raw ATD is streamed by hand rather than through kloppy: kloppy needs minutes
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import os
 from typing import List, Optional, Tuple
 
@@ -111,6 +112,21 @@ def graded_blocks(game="BAR-ATH") -> List[Tuple[int, int, int]]:
     return [(half, first, last + 1) for half, first, last in half_video_blocks(game)]
 
 
+def atd_cache_path(raw_path, n_frames, cache_dir):
+    """Where the parsed ATD is cached.
+
+    The key is the file's size, its frame count and a hash of its contents. The size alone cannot
+    tell two ATD files of equal length but different values apart, and a re-run of the ball detector
+    rewrites coordinates without necessarily changing how many bytes the file has.
+    """
+    digest = hashlib.blake2b(digest_size=6)
+    with open(raw_path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    name = "atd_{}_{}_{}.npz".format(os.path.getsize(raw_path), n_frames, digest.hexdigest())
+    return os.path.join(cache_dir, name)
+
+
 def load_match(cfg: Config, data_dir=None, game="BAR-ATH", use_cache=True, cache_dir=None,
                with_homography=True) -> MatchInputs:
     """Real-data entry point. Needs the gated bundle in ./data (or MTAH_DATA_DIR)."""
@@ -122,7 +138,7 @@ def load_match(cfg: Config, data_dir=None, game="BAR-ATH", use_cache=True, cache
     pitch = GAMES[game]["pitch"]
     n_frames = GAMES[game]["n_video_frames"]
     cache_dir = cache_dir or os.path.join(ROOT, "cache")
-    cache_file = os.path.join(cache_dir, "atd_{}_{}.npz".format(os.path.getsize(raw_path), n_frames))
+    cache_file = atd_cache_path(raw_path, n_frames, cache_dir)
 
     if use_cache and os.path.isfile(cache_file):
         z = np.load(cache_file)

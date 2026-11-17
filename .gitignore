@@ -155,3 +155,6 @@ tmp/
 # Aggregate-only by design, but they are run output: keep them local.
 reports/
 logs/
+
+# -- old results moved aside before a re-run (contains submissions and logs) ---------------------------
+archive/

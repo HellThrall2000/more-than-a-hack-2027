@@ -1,0 +1,4 @@
+# Shell scripts and the Makefile keep LF line endings even where core.autocrlf=true (Windows checks
+# files out with CRLF, and bash then fails on the carriage return at the end of every line).
+*.sh text eol=lf
+Makefile text eol=lf

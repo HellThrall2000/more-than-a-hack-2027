@@ -7,6 +7,7 @@
 set -u
 cd "$(dirname "$0")/.."
 PY=".venv/bin/python"
+[ -x "$PY" ] || PY=".venv/Scripts/python.exe"     # Windows (Git Bash)
 STAMP="$(date +%Y%m%d_%H%M%S)"
 RUN="logs/compare_atd_${STAMP}"
 SUM="reports/compare_atd_${STAMP}.txt"

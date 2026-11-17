@@ -15,7 +15,7 @@ frame-level data unless stated.
 | **OpenCV** (`opencv-python-headless` 5.0) | `possession/video/frames.py` | sequential decoding of `BAR-ATH_tactical.mp4` with `grab()` / `retrieve()`. No seeking: H.264 seeking is slow and inexact, and one frame off shifts every label. Only the frames needed are converted (grey, or BGR for the detector) |
 | **Homography** (provided, one matrix per frame) | `possession/video/geometry.py` | pitch metres ↔ image pixels, vectorised over frames. Used both ways: ATD ball → pixel (free labels), detection pixel → pitch metres |
 | **Roboflow `football-ball-detection`** (YOLOv8, [roboflow/sports](https://github.com/roboflow/sports)) via **Ultralytics** 8.4 | `possession/video/fullframe.py` | the ball detector in the submission. Pretrained, **no fine-tuning, no training on this match**. Downloaded once with **gdown** from the link in Roboflow's own `examples/soccer/setup.sh`; SHA-256 logged on every run |
-| **PyTorch** 2.14 (CUDA 13 wheels) | `fullframe.py` | whole 1080p frames, `imgsz=1280`, fp16, batches of 8, up to 5 candidates per frame. Decoding runs in a background thread so the GPU is not left waiting |
+| **PyTorch** 2.14 (AMD ROCm 10.1 wheels, RX 9060 XT / gfx1200) | `fullframe.py` | whole 1080p frames, `imgsz=1280`, fp16, batches of 8, up to 5 candidates per frame. Decoding runs in a background thread so the GPU is not left waiting |
 | our own ROI detector (`BallNet`, CenterNet-style) | `possession/video/{dataset,model,train,infer,evaluate,detect}.py` | first attempt; **dropped** (see section 4) |
 
 Commands:
@@ -46,8 +46,9 @@ none of which uses a possession label:
    where several chains survive in a frame, the longest wins.
 4. **Threshold from a self-check, not from labels** (`--evaluate`): the detector runs on 3,000
    frames (3 s windows) where the ATD *does* see the ball, and its positions are compared with the
-   ATD's. At confidence 0.5: 45% coverage, 72.9% within 2 m, 85.3% within 5 m. The chosen threshold
-   is stored in `cache/video_gate_fullframe.json`.
+   ATD's. No threshold reaches the 90% bar, so `--force` takes the best one: 0.4 on the RX 9060 XT
+   (0.5 on the NVIDIA card). At 0.4: 48% coverage, 72.1% within 2 m, 85.1% within 5 m (at 0.5: 45%,
+   71.8%, 84.6%). The self-check rows are stored in `cache/video_gate_fullframe.json`.
 
 Then `possession/video/write_atd.py` writes **our ATD**:
 
@@ -65,7 +66,8 @@ MTAH_DATA_DIR=cache/atd_ours_inside python -m possession.run --out submissions/x
 - `verify` re-parses both files and checks: players identical, original balls identical, line count
   identical, all new values finite. It prints the share of frames with a ball before and after.
 
-Result: 8,795 frames filled; graded frames with a ball 59.3% → 64.8%. The rest of the pipeline reads
+Result on the RX 9060 XT: 9,958 frames filled; graded frames with a ball 59.3% → 65.6% (8,795 and
+64.8% on the NVIDIA card: detections differ between GPU vendors). The rest of the pipeline reads
 our ATD exactly as it reads the original (`MTAH_DATA_DIR`), so nothing downstream had to change.
 
 `make compare-atd` (`scripts/compare_atd.sh`) runs the given ATD and our ATD side by side, each with
@@ -89,7 +91,27 @@ the data.
 | `make report` | `report.py` | totals-only cross-check of a full-match prediction against Smart Tagging set pieces and whistles (e.g. 58 of 59 set pieces fall at one of our dead-ball stretches) |
 | `make audio` | `audio.py` | referee-whistle detector on the video's audio track (2–4 kHz narrow-band tone, plain NumPy). Found 18 events in 2 h 13 min, barely better than chance against tagged set pieces: **dropped** |
 | `python -m possession.video.bench` | `video/bench.py` | decoding, training-step and inference timings per device on real tactical crops; writes `benchmarks/results/*.json` (timings and environment only) |
-| `make run-all` | `scripts/run_all.sh` | everything above in one go, full logs in `logs/`, a totals-only summary in `reports/` |
+| `make run-all` | `scripts/run_all.sh` | everything above in one go: full logs in `logs/`, a totals-only summary in `reports/`, the submission file in `submissions/`, a timing/score record in `benchmarks/results/` |
+
+**Live progress.** Each step of `run_all.sh` shows what it is doing on the console while it runs: a bar
+with percent, rate, ETA and elapsed time (`video_detect [##########--------] decoding for ball
+detection: 58% 110400/190198 frames 79 frames/s ETA 16:49 | 24:12`), the last log line for steps
+without a percentage, and a warning when a log has not changed for two minutes. The four parallel
+predictions get one status line (`predictions 0:21 | old_rules done | new_rules L4 emission ...`).
+Ctrl-C stops the running step and everything it started. On Windows, run it with Git Bash:
+`powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1 TotalFootball` (`-SkipVideo` reuses the
+last ball detections). Stand-alone commands such as `python -m possession.video.fullframe` print a
+progress line every 5 seconds.
+
+What a `run_all` round leaves behind: `submissions/<label>.csv` (the file to hand in: a validated
+copy of the video-assisted prediction, or of the tracking-only one when there are no detections),
+the candidate files it was copied from, `reports/summary_<time>.txt` (aggregates only, safe to
+paste) and `benchmarks/results/<time>_run-all.json` (step timings, versions, scores; no match
+data). The whistle step needs ffmpeg (`winget install Gyan.FFmpeg`); without it that step fails and
+the rest runs unchanged. `write_atd` links the data files into `cache/atd_ours_inside` by symlink,
+else hard link, else copy (Windows refuses symlinks without a special privilege). The parsed ATD is
+cached in `cache/` under a name that includes a hash of the file, so a new detection run never
+reads an old parse.
 
 Logging: every command writes `logs/<UTC>_<command>.log` (structlog) with the environment (versions,
 git commit, config hash), warnings and full tracebacks. `logs/`, `reports/`, `cache/` and
@@ -108,9 +130,16 @@ git commit, config hash), warnings and full tracebacks. `logs/`, `reports/`, `ca
 ## 5. Environment
 
 - `pyproject.toml` + `uv.lock` are the source of truth: `make setup` = `uv sync --extra video`.
-  The `video` extra adds torch / torchvision (CUDA 13.0 index), ultralytics, opencv-python-headless,
-  gdown and lightgbm. `requirements-*.txt` remain for pip users (and the AMD ROCm instructions).
-- Tested on Linux, Python 3.12–3.14, NVIDIA RTX 4070 SUPER (12 GB). The earlier AMD track (RX 9060 XT,
-  ROCm, Windows) is documented in [benchmarks/README.md](benchmarks/README.md).
+  The `video` extra adds torch / torchvision (AMD's ROCm index, `device-gfx1200`), ultralytics,
+  opencv-python-headless, gdown and lightgbm. `requirements-*.txt` remain for pip users.
+- This branch (`feat-amd-track2`) targets the AMD Radeon RX 9060 XT (16 GB, ROCm, Windows 11 or Linux,
+  Python 3.12–3.13). torch sees the card and trains on it (see [benchmarks/README.md](benchmarks/README.md));
+  the full detection run has been made on it twice (Windows 11, torch 2.14.0+rocm10.1.0): 45 and 46
+  minutes for 190,198 frames at about 70 frames/s. The NVIDIA setup (RTX 4070 SUPER, CUDA 13,
+  Python 3.12–3.14) is on `feat-nvidia-track`. MIOpen is switched off on ROCm (`pick_device`).
 - Determinism: detections rounded to 1 cm and 0.001 confidence, stable sorts, fixed seeds. Two full
-  detection runs in two environments gave identical detections (10,824 of 10,824).
+  detection runs in two NVIDIA environments gave identical detections (10,824 of 10,824). The AMD
+  card gives different ones (9,958 frames filled against 8,795; it also settles on another
+  threshold, 0.4 against 0.5), so the video-assisted CSV is byte-exact only on the same GPU family.
+  Two full runs on the AMD card agree with each other: 12,414 of 12,414 detections, none moved by
+  1 cm (`fullframe --compare`), and the same CSV byte for byte (SHA-256 starts `4d550df38280c15e`).

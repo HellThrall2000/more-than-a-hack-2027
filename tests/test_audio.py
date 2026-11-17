@@ -81,3 +81,16 @@ def test_calibration_prefers_thresholds_where_whistles_sit_inside_set_piece_tags
     rows = audio.calibrate(x, RATE, tags, cfg)
     lift, count, *_, hit = rows[0]
     assert count >= 20 and hit == 1.0 and lift > 1.5            # every whistle inside a tag; chance is ~54%
+
+
+def test_ffmpeg_is_found_on_the_path_or_in_the_winget_folder(tmp_path, monkeypatch):
+    # an editor opened before `winget install Gyan.FFmpeg` does not have the new PATH entry
+    bin_dir = tmp_path / "Microsoft" / "WinGet" / "Packages" / "Gyan.FFmpeg_x" / "ffmpeg-9.0-full_build" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "ffprobe.exe").write_bytes(b"")
+    monkeypatch.setattr(audio.shutil, "which", lambda name: None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert audio._exe("ffprobe") == str(bin_dir / "ffprobe.exe")
+    assert audio._exe("ffmpeg") == "ffmpeg"                         # not installed anywhere: let the OS say so
+    monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/bin/" + name)
+    assert audio._exe("ffprobe") == "/usr/bin/ffprobe"

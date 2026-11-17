@@ -55,12 +55,8 @@ video-detect:
 V3_SET = --set taker_dist=0 --set goal_mouth_half=-1 --set gk_parry_factor=1 --set dec_bonus_stop_audio=0 --set emit_shape_weight=0
 OURS   = cache/atd_ours_inside
 
-final:
-	$(PY) -m possession.video.fullframe --evaluate || test $$? -eq 3
-	$(PY) -m possession.video.fullframe --force
-	$(PY) -m possession.video.write_atd --out-root $(OURS) --inside-m 1.0
-	MTAH_DATA_DIR=$(OURS) $(PY) -m possession.run --out $(OUT) $(V3_SET)
-	$(PY) evaluation/validate_submission.py $(OUT)
+final:  # the five steps live in possession/reproduce.py (no make needed: see its docstring)
+	$(PY) -m possession.reproduce --out $(OUT)
 
 compare-atd:
 	scripts/compare_atd.sh

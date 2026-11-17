@@ -1,0 +1,252 @@
+{
+  "run": "scripts/run_all.sh",
+  "name": "TotalFootball",
+  "when_utc": "2026-11-07T17:18:36+00:00",
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11",
+    "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "cwd": "D:\\repo\\more-than-a-hack-2027",
+    "git": "b10bb9d (uncommitted changes)",
+    "config": "453315b630",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6",
+    "cv2": "5.0.0",
+    "torch": "2.14.0+rocm10.1.0",
+    "torch_hip": "7.16.26385",
+    "gpu": "AMD Radeon RX 9060 XT (gfx1200, 15.9 GB)",
+    "ram_gb": 15.6
+  },
+  "total_seconds": 3187,
+  "failed_steps": [],
+  "steps": [
+    {
+      "step": "tests",
+      "status": "ok",
+      "seconds": 18,
+      "exit_code": 0
+    },
+    {
+      "step": "audit",
+      "status": "ok",
+      "seconds": 10,
+      "exit_code": 0
+    },
+    {
+      "step": "audio",
+      "status": "ok",
+      "seconds": 9,
+      "exit_code": 0
+    },
+    {
+      "step": "video_check",
+      "status": "ok",
+      "seconds": 220,
+      "exit_code": 3
+    },
+    {
+      "step": "video_detect",
+      "status": "ok",
+      "seconds": 2771,
+      "exit_code": 0
+    },
+    {
+      "step": "write_atd",
+      "status": "ok",
+      "seconds": 12,
+      "exit_code": 0
+    },
+    {
+      "step": "predict_old_rules",
+      "status": "ok",
+      "seconds": 24,
+      "exit_code": 0
+    },
+    {
+      "step": "predict_new_rules",
+      "status": "ok",
+      "seconds": 26,
+      "exit_code": 0
+    },
+    {
+      "step": "predict_new_rules_b",
+      "status": "ok",
+      "seconds": 26,
+      "exit_code": 0
+    },
+    {
+      "step": "predict_v3_our_atd",
+      "status": "ok",
+      "seconds": 30,
+      "exit_code": 0
+    },
+    {
+      "step": "validate_old_rules",
+      "status": "ok",
+      "seconds": 2,
+      "exit_code": 0
+    },
+    {
+      "step": "score_old_rules",
+      "status": "ok",
+      "seconds": 3,
+      "exit_code": 0
+    },
+    {
+      "step": "validate_new_rules",
+      "status": "ok",
+      "seconds": 2,
+      "exit_code": 0
+    },
+    {
+      "step": "score_new_rules",
+      "status": "ok",
+      "seconds": 3,
+      "exit_code": 0
+    },
+    {
+      "step": "validate_v3_our_atd",
+      "status": "ok",
+      "seconds": 2,
+      "exit_code": 0
+    },
+    {
+      "step": "score_v3_our_atd",
+      "status": "ok",
+      "seconds": 3,
+      "exit_code": 0
+    },
+    {
+      "step": "validate_final",
+      "status": "ok",
+      "seconds": 2,
+      "exit_code": 0
+    },
+    {
+      "step": "report",
+      "status": "ok",
+      "seconds": 24,
+      "exit_code": 0
+    }
+  ],
+  "scores": {
+    "old_rules": {
+      "spell_f1": 0.497,
+      "macro_f1": 0.777,
+      "possessions": 16,
+      "gt_possessions": 17,
+      "config": "453315b630",
+      "spell_f1_bootstrap_5_95": [
+        0.3273,
+        0.6667
+      ]
+    },
+    "new_rules": {
+      "spell_f1": 0.4824,
+      "macro_f1": 0.7721,
+      "possessions": 17,
+      "gt_possessions": 17,
+      "config": "453315b630",
+      "spell_f1_bootstrap_5_95": [
+        0.3176,
+        0.6471
+      ]
+    },
+    "v3_our_atd": {
+      "spell_f1": 0.5091,
+      "macro_f1": 0.7944,
+      "possessions": 16,
+      "gt_possessions": 17,
+      "config": "453315b630",
+      "spell_f1_bootstrap_5_95": [
+        0.3273,
+        0.6909
+      ]
+    }
+  },
+  "predictions": {
+    "old_rules": {
+      "possessions": 263,
+      "mean_possession_s": 12.8,
+      "dead_ball_stretches": 176,
+      "graded_share_pct": {
+        "H": 33.2,
+        "A": 19.9,
+        "D": 46.9
+      }
+    },
+    "new_rules": {
+      "possessions": 265,
+      "mean_possession_s": 12.7,
+      "dead_ball_stretches": 173,
+      "graded_share_pct": {
+        "H": 33.3,
+        "A": 19.7,
+        "D": 47.0
+      }
+    },
+    "new_rules_b": {
+      "possessions": 265,
+      "mean_possession_s": 12.7,
+      "dead_ball_stretches": 173,
+      "graded_share_pct": {
+        "H": 33.3,
+        "A": 19.7,
+        "D": 47.0
+      }
+    },
+    "v3_our_atd": {
+      "possessions": 293,
+      "mean_possession_s": 11.4,
+      "dead_ball_stretches": 203,
+      "graded_share_pct": {
+        "H": 33.4,
+        "A": 19.4,
+        "D": 47.2
+      }
+    }
+  },
+  "video_gate": [
+    {
+      "coverage": 0.773,
+      "precision": 0.6313,
+      "thr": 0.05
+    },
+    {
+      "coverage": 0.6671,
+      "precision": 0.6717,
+      "thr": 0.1
+    },
+    {
+      "coverage": 0.6011,
+      "precision": 0.6984,
+      "thr": 0.15
+    },
+    {
+      "coverage": 0.5774,
+      "precision": 0.6969,
+      "thr": 0.2
+    },
+    {
+      "coverage": 0.5313,
+      "precision": 0.7022,
+      "thr": 0.3
+    },
+    {
+      "coverage": 0.4817,
+      "precision": 0.7208,
+      "thr": 0.4
+    },
+    {
+      "coverage": 0.4488,
+      "precision": 0.7175,
+      "thr": 0.5
+    }
+  ],
+  "reproducible": true,
+  "detections": {
+    "recovered": 12414,
+    "searched": 64687,
+    "share": 0.1919
+  }
+}
